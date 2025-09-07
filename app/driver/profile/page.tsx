@@ -9,22 +9,23 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { User, Phone, Mail, MapPin, Bell, Shield, Star } from "lucide-react"
-import { PassengerLayout } from "@/components/passenger-layout"
+import { Separator } from "@/components/ui/separator"
+import { User, Car, CreditCard, Star } from "lucide-react"
+import { DriverLayout } from "@/components/driver-layout"
 import { AuthGuard } from "@/components/auth-guard"
 import { useSession } from "@/hooks/use-session"
 import { LoadingSpinner } from "@/components/loading-spinner"
 import { ErrorAlert } from "@/components/error-alert"
 import { ImageUpload } from "@/components/image-upload"
 
-export default function PassengerProfilePage() {
+export default function DriverProfilePage() {
   const { session } = useSession()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
+    // User profile
     full_name: "",
     email: "",
     phone: "",
@@ -34,13 +35,13 @@ export default function PassengerProfilePage() {
     emergency_contact_name: "",
     emergency_contact_phone: "",
     profile_image_url: "",
-  })
-  const [preferences, setPreferences] = useState({
-    notifications: true,
-    sms_updates: true,
-    email_updates: false,
-    location_sharing: true,
-    ride_sharing: true,
+    // Driver profile
+    bio: "",
+    years_experience: 0,
+    languages: [] as string[],
+    vehicle_description: "",
+    bank_account_number: "",
+    bank_name: "",
   })
 
   useEffect(() => {
@@ -70,6 +71,12 @@ export default function PassengerProfilePage() {
           emergency_contact_name: profileData.emergency_contact_name || "",
           emergency_contact_phone: profileData.emergency_contact_phone || "",
           profile_image_url: profileData.profile_image_url || "",
+          bio: profileData.driver_profile?.bio || "",
+          years_experience: profileData.driver_profile?.years_experience || 0,
+          languages: profileData.driver_profile?.languages || [],
+          vehicle_description: profileData.driver_profile?.vehicle_description || "",
+          bank_account_number: profileData.driver_profile?.bank_account_number || "",
+          bank_name: profileData.driver_profile?.bank_name || "",
         })
       } else {
         throw new Error(result.error || "Failed to load profile")
@@ -86,12 +93,27 @@ export default function PassengerProfilePage() {
     try {
       setSaving(true)
 
+      const { bio, years_experience, languages, vehicle_description, bank_account_number, bank_name, ...userProfile } =
+        formData
+
+      const profileData = {
+        ...userProfile,
+        driver_profile: {
+          bio,
+          years_experience,
+          languages,
+          vehicle_description,
+          bank_account_number,
+          bank_name,
+        },
+      }
+
       const response = await fetch("/api/user/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(profileData),
       })
 
       const result = await response.json()
@@ -114,6 +136,22 @@ export default function PassengerProfilePage() {
     setFormData((prev) => ({ ...prev, profile_image_url: imageUrl }))
   }
 
+  const addLanguage = (language: string) => {
+    if (language && !formData.languages.includes(language)) {
+      setFormData((prev) => ({
+        ...prev,
+        languages: [...prev.languages, language],
+      }))
+    }
+  }
+
+  const removeLanguage = (language: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      languages: prev.languages.filter((lang) => lang !== language),
+    }))
+  }
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
@@ -125,13 +163,13 @@ export default function PassengerProfilePage() {
   if (!session) return null
 
   return (
-    <AuthGuard requiredRole="passenger">
-      <PassengerLayout>
+    <AuthGuard requiredRole="driver">
+      <DriverLayout>
         <div className="space-y-6">
           {/* Header */}
           <div>
-            <h1 className="text-3xl font-bold">Profile Settings</h1>
-            <p className="text-gray-600">Manage your account information and preferences</p>
+            <h1 className="text-3xl font-bold">Driver Profile</h1>
+            <p className="text-gray-600">Manage your driver profile and account information</p>
           </div>
 
           {/* Error State */}
@@ -156,18 +194,18 @@ export default function PassengerProfilePage() {
                       onImageUploaded={handleImageUploaded}
                       purpose="profile_image"
                       size="lg"
-                      fallbackText={profile.full_name?.charAt(0) || "U"}
+                      fallbackText={profile.full_name?.charAt(0) || "D"}
                     />
                     <div className="flex-1">
                       <h2 className="text-2xl font-bold">{profile.full_name}</h2>
                       <p className="text-gray-600">{profile.email}</p>
                       <div className="flex items-center gap-4 mt-2">
-                        <Badge variant="secondary">Member since {formatDate(profile.created_at)}</Badge>
+                        <Badge variant="secondary">Driver since {formatDate(profile.created_at)}</Badge>
                         <div className="flex items-center gap-1">
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm font-medium">4.9</span>
+                          <span className="text-sm font-medium">{profile.driver_profile?.rating || "5.0"}</span>
                         </div>
-                        <Badge variant="outline">47 rides</Badge>
+                        <Badge variant="outline">{profile.driver_profile?.total_rides || 0} rides</Badge>
                       </div>
                     </div>
                   </div>
@@ -175,11 +213,11 @@ export default function PassengerProfilePage() {
               </Card>
 
               <Tabs defaultValue="personal" className="space-y-4">
-                <TabsList>
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="personal">Personal Info</TabsTrigger>
-                  <TabsTrigger value="preferences">Preferences</TabsTrigger>
-                  <TabsTrigger value="security">Security</TabsTrigger>
-                  <TabsTrigger value="verification">Verification</TabsTrigger>
+                  <TabsTrigger value="driver">Driver Details</TabsTrigger>
+                  <TabsTrigger value="vehicle">Vehicle Info</TabsTrigger>
+                  <TabsTrigger value="banking">Banking</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="personal" className="space-y-4">
@@ -251,6 +289,36 @@ export default function PassengerProfilePage() {
                           </Select>
                         </div>
                         <div>
+                          <Label htmlFor="years_experience">Years of Driving Experience</Label>
+                          <Input
+                            id="years_experience"
+                            type="number"
+                            min="0"
+                            value={formData.years_experience}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                years_experience: Number.parseInt(e.target.value) || 0,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="address">Address</Label>
+                        <Textarea
+                          id="address"
+                          value={formData.address}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+                          placeholder="Enter your full address"
+                        />
+                      </div>
+
+                      <Separator />
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
                           <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
                           <Input
                             id="emergency_contact_name"
@@ -260,9 +328,6 @@ export default function PassengerProfilePage() {
                             }
                           />
                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="emergency_contact_phone">Emergency Contact Phone</Label>
                           <Input
@@ -274,184 +339,123 @@ export default function PassengerProfilePage() {
                           />
                         </div>
                       </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="driver" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <User className="h-5 w-5" />
+                        Driver Information
+                      </CardTitle>
+                      <CardDescription>Tell passengers about yourself</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label htmlFor="bio">Bio</Label>
+                        <Textarea
+                          id="bio"
+                          value={formData.bio}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, bio: e.target.value }))}
+                          placeholder="Tell passengers about yourself, your driving style, and what makes you a great driver..."
+                          rows={4}
+                        />
+                      </div>
 
                       <div>
-                        <Label htmlFor="address">Home Address</Label>
+                        <Label>Languages Spoken</Label>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {formData.languages.map((language) => (
+                            <Badge
+                              key={language}
+                              variant="secondary"
+                              className="cursor-pointer"
+                              onClick={() => removeLanguage(language)}
+                            >
+                              {language} ×
+                            </Badge>
+                          ))}
+                        </div>
+                        <Select onValueChange={addLanguage}>
+                          <SelectTrigger className="mt-2">
+                            <SelectValue placeholder="Add a language" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="English">English</SelectItem>
+                            <SelectItem value="Spanish">Spanish</SelectItem>
+                            <SelectItem value="French">French</SelectItem>
+                            <SelectItem value="German">German</SelectItem>
+                            <SelectItem value="Italian">Italian</SelectItem>
+                            <SelectItem value="Portuguese">Portuguese</SelectItem>
+                            <SelectItem value="Chinese">Chinese</SelectItem>
+                            <SelectItem value="Japanese">Japanese</SelectItem>
+                            <SelectItem value="Korean">Korean</SelectItem>
+                            <SelectItem value="Arabic">Arabic</SelectItem>
+                            <SelectItem value="Hindi">Hindi</SelectItem>
+                            <SelectItem value="Russian">Russian</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="vehicle" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Car className="h-5 w-5" />
+                        Vehicle Information
+                      </CardTitle>
+                      <CardDescription>Describe your vehicle for passengers</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label htmlFor="vehicle_description">Vehicle Description</Label>
                         <Textarea
-                          id="address"
-                          value={formData.address}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-                          placeholder="Enter your full address"
+                          id="vehicle_description"
+                          value={formData.vehicle_description}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, vehicle_description: e.target.value }))}
+                          placeholder="Describe your vehicle (e.g., 2020 Toyota Camry, Silver, Clean and comfortable with AC, phone chargers available...)"
+                          rows={3}
                         />
                       </div>
                     </CardContent>
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="preferences" className="space-y-4">
+                <TabsContent value="banking" className="space-y-4">
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
-                        <Bell className="h-5 w-5" />
-                        Notification Preferences
+                        <CreditCard className="h-5 w-5" />
+                        Banking Information
                       </CardTitle>
-                      <CardDescription>Choose how you want to be notified</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Push Notifications</p>
-                          <p className="text-sm text-gray-600">Receive notifications in the app</p>
-                        </div>
-                        <Switch
-                          checked={preferences.notifications}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, notifications: checked }))}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">SMS Updates</p>
-                          <p className="text-sm text-gray-600">Get ride updates via text message</p>
-                        </div>
-                        <Switch
-                          checked={preferences.sms_updates}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, sms_updates: checked }))}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Email Updates</p>
-                          <p className="text-sm text-gray-600">Receive promotional emails and updates</p>
-                        </div>
-                        <Switch
-                          checked={preferences.email_updates}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, email_updates: checked }))}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MapPin className="h-5 w-5" />
-                        Privacy Preferences
-                      </CardTitle>
-                      <CardDescription>Control your privacy settings</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Location Sharing</p>
-                          <p className="text-sm text-gray-600">Share location with drivers during rides</p>
-                        </div>
-                        <Switch
-                          checked={preferences.location_sharing}
-                          onCheckedChange={(checked) =>
-                            setPreferences((prev) => ({ ...prev, location_sharing: checked }))
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Ride Sharing</p>
-                          <p className="text-sm text-gray-600">Allow shared rides with other passengers</p>
-                        </div>
-                        <Switch
-                          checked={preferences.ride_sharing}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, ride_sharing: checked }))}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="security" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="h-5 w-5" />
-                        Security Settings
-                      </CardTitle>
-                      <CardDescription>Manage your account security</CardDescription>
+                      <CardDescription>Manage your payment details for earnings</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="current_password">Current Password</Label>
-                          <Input id="current_password" type="password" />
+                          <Label htmlFor="bank_name">Bank Name</Label>
+                          <Input
+                            id="bank_name"
+                            value={formData.bank_name}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, bank_name: e.target.value }))}
+                            placeholder="e.g., Chase Bank"
+                          />
                         </div>
                         <div>
-                          <Label htmlFor="new_password">New Password</Label>
-                          <Input id="new_password" type="password" />
+                          <Label htmlFor="bank_account_number">Account Number</Label>
+                          <Input
+                            id="bank_account_number"
+                            value={formData.bank_account_number}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, bank_account_number: e.target.value }))}
+                            placeholder="Enter your account number"
+                            type="password"
+                          />
                         </div>
-                        <div>
-                          <Label htmlFor="confirm_password">Confirm New Password</Label>
-                          <Input id="confirm_password" type="password" />
-                        </div>
-                        <Button>Update Password</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Two-Factor Authentication</CardTitle>
-                      <CardDescription>Add an extra layer of security to your account</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">SMS Authentication</p>
-                          <p className="text-sm text-gray-600">Receive verification codes via SMS</p>
-                        </div>
-                        <Button variant="outline">Enable</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="verification" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Account Verification</CardTitle>
-                      <CardDescription>Verify your account for enhanced security and features</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Phone className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Phone Number</p>
-                            <p className="text-sm text-gray-600">{profile.phone}</p>
-                          </div>
-                        </div>
-                        <Badge variant="default">Verified</Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Mail className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Email Address</p>
-                            <p className="text-sm text-gray-600">{profile.email}</p>
-                          </div>
-                        </div>
-                        <Badge variant="default">Verified</Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Shield className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Identity Verification</p>
-                            <p className="text-sm text-gray-600">Upload government ID for verification</p>
-                          </div>
-                        </div>
-                        <Button variant="outline">Upload ID</Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -474,7 +478,7 @@ export default function PassengerProfilePage() {
             </>
           )}
         </div>
-      </PassengerLayout>
+      </DriverLayout>
     </AuthGuard>
   )
 }
