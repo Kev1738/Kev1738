@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -30,6 +29,7 @@ export function PassengerLayout({ children }: PassengerLayoutProps) {
 
   const handleLogout = () => {
     localStorage.removeItem("user")
+    localStorage.removeItem("token")
     router.push("/")
   }
 
@@ -98,7 +98,7 @@ export function PassengerLayout({ children }: PassengerLayoutProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback>{user.name?.charAt(0) || "U"}</AvatarFallback>
+                  <AvatarFallback>{user.full_name?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>

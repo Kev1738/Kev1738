@@ -55,43 +55,34 @@ export default function DriverProfilePage() {
       setLoading(true)
       setError(null)
 
-      console.log("🔄 Loading driver profile...")
-
       const response = await fetch("/api/user/profile")
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
       const result = await response.json()
 
-      if (!result.success) {
+      if (result.success) {
+        const profileData = result.data
+        setProfile(profileData)
+        setFormData({
+          full_name: profileData.full_name || "",
+          email: profileData.email || "",
+          phone: profileData.phone || "",
+          date_of_birth: profileData.date_of_birth || "",
+          gender: profileData.gender || "",
+          address: profileData.address || "",
+          emergency_contact_name: profileData.emergency_contact_name || "",
+          emergency_contact_phone: profileData.emergency_contact_phone || "",
+          profile_image_url: profileData.profile_image_url || "",
+          bio: profileData.driver_profile?.bio || "",
+          years_experience: profileData.driver_profile?.years_experience || 0,
+          languages: profileData.driver_profile?.languages || [],
+          vehicle_description: profileData.driver_profile?.vehicle_description || "",
+          bank_account_number: profileData.driver_profile?.bank_account_number || "",
+          bank_name: profileData.driver_profile?.bank_name || "",
+        })
+      } else {
         throw new Error(result.error || "Failed to load profile")
       }
-
-      const profileData = result.data
-      console.log("✅ Profile loaded:", profileData)
-
-      setProfile(profileData)
-      setFormData({
-        full_name: profileData.full_name || "",
-        email: profileData.email || "",
-        phone: profileData.phone || "",
-        date_of_birth: profileData.date_of_birth || "",
-        gender: profileData.gender || "",
-        address: profileData.address || "",
-        emergency_contact_name: profileData.emergency_contact_name || "",
-        emergency_contact_phone: profileData.emergency_contact_phone || "",
-        profile_image_url: profileData.profile_image_url || "",
-        bio: profileData.driver_profile?.bio || "",
-        years_experience: profileData.driver_profile?.years_experience || 0,
-        languages: profileData.driver_profile?.languages || [],
-        vehicle_description: profileData.driver_profile?.vehicle_description || "",
-        bank_account_number: profileData.driver_profile?.bank_account_number || "",
-        bank_name: profileData.driver_profile?.bank_name || "",
-      })
     } catch (err) {
-      console.error("💥 Load profile error:", err)
+      console.error("Load profile error:", err)
       setError(err instanceof Error ? err.message : "Failed to load profile")
     } finally {
       setLoading(false)
@@ -117,8 +108,6 @@ export default function DriverProfilePage() {
         },
       }
 
-      console.log("💾 Saving profile data:", profileData)
-
       const response = await fetch("/api/user/profile", {
         method: "PUT",
         headers: {
@@ -127,21 +116,16 @@ export default function DriverProfilePage() {
         body: JSON.stringify(profileData),
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-      }
-
       const result = await response.json()
 
-      if (!result.success) {
+      if (result.success) {
+        setProfile(result.data)
+        alert("Profile updated successfully!")
+      } else {
         throw new Error(result.error || "Failed to update profile")
       }
-
-      setProfile(result.data)
-      console.log("✅ Profile updated successfully")
-      alert("Profile updated successfully!")
     } catch (err) {
-      console.error("💥 Save profile error:", err)
+      console.error("Save profile error:", err)
       alert(err instanceof Error ? err.message : "Failed to update profile. Please try again.")
     } finally {
       setSaving(false)
@@ -169,7 +153,6 @@ export default function DriverProfilePage() {
   }
 
   const formatDate = (dateString: string) => {
-    if (!dateString) return "N/A"
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
@@ -214,7 +197,7 @@ export default function DriverProfilePage() {
                       fallbackText={profile.full_name?.charAt(0) || "D"}
                     />
                     <div className="flex-1">
-                      <h2 className="text-2xl font-bold">{profile.full_name || "Driver"}</h2>
+                      <h2 className="text-2xl font-bold">{profile.full_name}</h2>
                       <p className="text-gray-600">{profile.email}</p>
                       <div className="flex items-center gap-4 mt-2">
                         <Badge variant="secondary">Driver since {formatDate(profile.created_at)}</Badge>

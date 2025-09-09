@@ -1,264 +1,248 @@
+import { supabase } from "./database"
+import { AppError } from "./error-handler"
 import crypto from "crypto"
-import { getUserByEmail, createUser, createDriverProfile, createPassengerProfile, createWallet } from "./database"
-import { SessionManager } from "./session-manager"
 
-export interface LoginCredentials {
+export interface LoginResult {
+  id: string
   email: string
-  password: string
+  full_name: string
+  phone?: string
+  role: "passenger" | "driver" | "admin"
+  is_verified: boolean
+  is_active: boolean
+  profile_image_url?: string
+  created_at: string
+  updated_at: string
 }
 
 export interface RegisterData {
   email: string
   password: string
-  fullName: string
+  full_name: string
   phone?: string
   role: "passenger" | "driver" | "admin"
 }
 
-export interface AuthResult {
-  success: boolean
-  message: string
-  user?: {
-    id: string
-    email: string
-    role: string
-    fullName?: string
-  }
-  token?: string
+// Simple MD5 hash function (use bcrypt in production)
+function hashPassword(password: string): string {
+  return crypto
+    .createHash("md5")
+    .update(password + "salt")
+    .digest("hex")
 }
 
-export class AuthService {
-  private static hashPassword(password: string): string {
-    return crypto.createHash("md5").update(password).digest("hex")
+export async function loginUser(email: string, password: string): Promise<LoginResult> {
+  try {
+    console.log("🔐 Attempting to login user:", email)
+
+    if (!email || !password) {
+      throw new AppError("Email and password are required", "VALIDATION_ERROR", 400)
+    }
+
+    // Hash the password to match stored format
+    const hashedPassword = hashPassword(password)
+    console.log("🔒 Password hashed for comparison")
+
+    // Query user from database
+    const { data: users, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("email", email.toLowerCase().trim())
+      .eq("password", hashedPassword)
+      .limit(1)
+
+    if (error) {
+      console.error("❌ Database error during login:", error)
+      throw new AppError("Database error during login", "DB_ERROR", 500, error)
+    }
+
+    if (!users || users.length === 0) {
+      console.error("❌ Invalid credentials for:", email)
+      throw new AppError("Invalid email or password", "INVALID_CREDENTIALS", 401)
+    }
+
+    const user = users[0]
+
+    // Check if user is active
+    if (!user.is_active) {
+      console.error("❌ Account is deactivated for:", email)
+      throw new AppError("Account is deactivated", "ACCOUNT_INACTIVE", 403)
+    }
+
+    console.log("✅ Login successful for user:", user.id)
+
+    // Return user data (excluding password)
+    const { password: _, ...userWithoutPassword } = user
+    return userWithoutPassword as LoginResult
+  } catch (error) {
+    console.error("💥 Login error:", error)
+    if (error instanceof AppError) {
+      throw error
+    }
+    throw new AppError("Login failed", "LOGIN_ERROR", 500, error)
   }
+}
 
-  static async login(credentials: LoginCredentials): Promise<AuthResult> {
-    try {
-      console.log("🔐 Attempting login for:", credentials.email)
+export async function registerUser(userData: RegisterData): Promise<LoginResult> {
+  try {
+    console.log("📝 Attempting to register user:", userData.email)
 
-      // Validate input
-      if (!credentials.email || !credentials.password) {
-        return {
-          success: false,
-          message: "Email and password are required",
-        }
-      }
+    const { email, password, full_name, phone, role } = userData
 
-      // Get user from database
-      const user = await getUserByEmail(credentials.email.toLowerCase().trim())
-      if (!user) {
-        console.log("❌ User not found:", credentials.email)
-        return {
-          success: false,
-          message: "Invalid email or password",
-        }
-      }
+    // Validate input
+    if (!email || !password || !full_name || !role) {
+      throw new AppError("Email, password, full name, and role are required", "VALIDATION_ERROR", 400)
+    }
 
-      // Verify password
-      const hashedPassword = this.hashPassword(credentials.password)
-      if (user.password !== hashedPassword) {
-        console.log("❌ Invalid password for user:", credentials.email)
-        return {
-          success: false,
-          message: "Invalid email or password",
-        }
-      }
+    if (!["passenger", "driver", "admin"].includes(role)) {
+      throw new AppError("Invalid role specified", "VALIDATION_ERROR", 400)
+    }
 
-      // Check if user is active
-      if (!user.is_active) {
-        console.log("❌ User account is inactive:", credentials.email)
-        return {
-          success: false,
-          message: "Account is inactive. Please contact support.",
-        }
-      }
+    if (password.length < 6) {
+      throw new AppError("Password must be at least 6 characters long", "VALIDATION_ERROR", 400)
+    }
 
-      // Create session
-      const session = await SessionManager.createUserSession(user.id)
-      if (!session) {
-        console.error("❌ Failed to create session for user:", credentials.email)
-        return {
-          success: false,
-          message: "Failed to create session. Please try again.",
-        }
-      }
+    // Check if user already exists
+    const { data: existingUsers, error: checkError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email.toLowerCase().trim())
+      .limit(1)
 
-      console.log("✅ Login successful for:", credentials.email)
-      return {
-        success: true,
-        message: "Login successful",
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          fullName: user.full_name,
+    if (checkError) {
+      console.error("❌ Database error checking existing user:", checkError)
+      throw new AppError("Database error during registration", "DB_ERROR", 500, checkError)
+    }
+
+    if (existingUsers && existingUsers.length > 0) {
+      console.error("❌ User already exists:", email)
+      throw new AppError("User with this email already exists", "USER_EXISTS", 409)
+    }
+
+    // Hash password
+    const hashedPassword = hashPassword(password)
+
+    // Create user record
+    const newUser = {
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      full_name: full_name.trim(),
+      phone: phone?.trim() || null,
+      role,
+      is_verified: false,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data: createdUsers, error: createError } = await supabase.from("users").insert([newUser]).select("*")
+
+    if (createError) {
+      console.error("❌ Database error creating user:", createError)
+      throw new AppError("Failed to create user account", "DB_ERROR", 500, createError)
+    }
+
+    if (!createdUsers || createdUsers.length === 0) {
+      throw new AppError("Failed to create user account", "DB_ERROR", 500)
+    }
+
+    const user = createdUsers[0]
+    console.log("✅ User registration successful:", user.id)
+
+    // Create profile based on role
+    if (role === "driver") {
+      const { error: profileError } = await supabase.from("driver_profiles").insert([
+        {
+          user_id: user.id,
+          is_online: false,
+          status: "offline",
+          rating: 5.0,
+          total_rides: 0,
+          total_earnings: 0.0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         },
-        token: session.token,
+      ])
+
+      if (profileError) {
+        console.warn("⚠️ Failed to create driver profile:", profileError)
       }
-    } catch (error) {
-      console.error("💥 Login error:", error)
-      return {
-        success: false,
-        message: "An error occurred during login. Please try again.",
-      }
-    }
-  }
-
-  static async register(data: RegisterData): Promise<AuthResult> {
-    try {
-      console.log("📝 Attempting registration for:", data.email)
-
-      // Validate input
-      if (!data.email || !data.password || !data.fullName || !data.role) {
-        return {
-          success: false,
-          message: "All required fields must be provided",
-        }
-      }
-
-      // Check if user already exists
-      const existingUser = await getUserByEmail(data.email.toLowerCase().trim())
-      if (existingUser) {
-        console.log("❌ User already exists:", data.email)
-        return {
-          success: false,
-          message: "An account with this email already exists",
-        }
-      }
-
-      // Hash password
-      const hashedPassword = this.hashPassword(data.password)
-
-      // Create user
-      const user = await createUser({
-        email: data.email.toLowerCase().trim(),
-        password: hashedPassword,
-        full_name: data.fullName,
-        phone: data.phone,
-        role: data.role,
-      })
-
-      if (!user) {
-        console.error("❌ Failed to create user:", data.email)
-        return {
-          success: false,
-          message: "Failed to create account. Please try again.",
-        }
-      }
-
-      // Create role-specific profile
-      if (data.role === "driver") {
-        await createDriverProfile(user.id)
-      } else if (data.role === "passenger") {
-        await createPassengerProfile(user.id)
-      }
-
-      // Create wallet for all users
-      await createWallet(user.id)
-
-      // Create session
-      const session = await SessionManager.createUserSession(user.id)
-      if (!session) {
-        console.error("❌ Failed to create session for new user:", data.email)
-        return {
-          success: false,
-          message: "Account created but failed to log in. Please try logging in manually.",
-        }
-      }
-
-      console.log("✅ Registration successful for:", data.email)
-      return {
-        success: true,
-        message: "Account created successfully",
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          fullName: user.full_name,
+    } else if (role === "passenger") {
+      const { error: profileError } = await supabase.from("passenger_profiles").insert([
+        {
+          user_id: user.id,
+          preferred_payment_method: "card",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         },
-        token: session.token,
-      }
-    } catch (error) {
-      console.error("💥 Registration error:", error)
-      return {
-        success: false,
-        message: "An error occurred during registration. Please try again.",
+      ])
+
+      if (profileError) {
+        console.warn("⚠️ Failed to create passenger profile:", profileError)
       }
     }
+
+    // Create wallet for user
+    const { error: walletError } = await supabase.from("wallets").insert([
+      {
+        user_id: user.id,
+        balance: 0.0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ])
+
+    if (walletError) {
+      console.warn("⚠️ Failed to create wallet:", walletError)
+    }
+
+    // Return user data (excluding password)
+    const { password: _, ...userWithoutPassword } = user
+    return userWithoutPassword as LoginResult
+  } catch (error) {
+    console.error("💥 Registration error:", error)
+    if (error instanceof AppError) {
+      throw error
+    }
+    throw new AppError("Registration failed", "REGISTRATION_ERROR", 500, error)
   }
+}
 
-  static async verifyToken(token: string): Promise<AuthResult> {
-    try {
-      console.log("🔍 Verifying token")
+export async function getUserById(userId: string): Promise<LoginResult | null> {
+  try {
+    const { data: users, error } = await supabase.from("users").select("*").eq("id", userId).limit(1)
 
-      if (!token) {
-        return {
-          success: false,
-          message: "No token provided",
-        }
-      }
-
-      const session = await SessionManager.validateSession(token)
-      if (!session) {
-        console.log("❌ Invalid or expired token")
-        return {
-          success: false,
-          message: "Invalid or expired session",
-        }
-      }
-
-      console.log("✅ Token verified successfully")
-      return {
-        success: true,
-        message: "Token is valid",
-        user: {
-          id: session.userId,
-          email: session.email,
-          role: session.role,
-        },
-        token: session.token,
-      }
-    } catch (error) {
-      console.error("💥 Token verification error:", error)
-      return {
-        success: false,
-        message: "An error occurred during token verification",
-      }
+    if (error) {
+      console.error("❌ Database error fetching user:", error)
+      return null
     }
+
+    if (!users || users.length === 0) {
+      return null
+    }
+
+    const user = users[0]
+    const { password: _, ...userWithoutPassword } = user
+    return userWithoutPassword as LoginResult
+  } catch (error) {
+    console.error("💥 Error fetching user:", error)
+    return null
   }
+}
 
-  static async logout(token: string): Promise<AuthResult> {
-    try {
-      console.log("👋 Attempting logout")
+export async function getCurrentUser(): Promise<LoginResult | null> {
+  try {
+    // Get user ID from session storage or localStorage
+    const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null
 
-      if (!token) {
-        return {
-          success: true,
-          message: "Already logged out",
-        }
-      }
-
-      const result = await SessionManager.destroySession(token)
-
-      if (result) {
-        console.log("✅ Logout successful")
-        return {
-          success: true,
-          message: "Logged out successfully",
-        }
-      } else {
-        console.error("❌ Failed to destroy session during logout")
-        return {
-          success: true, // Still return success as user intent is to logout
-          message: "Logged out (session cleanup failed)",
-        }
-      }
-    } catch (error) {
-      console.error("💥 Logout error:", error)
-      return {
-        success: true, // Still return success as user intent is to logout
-        message: "Logged out (with errors)",
-      }
+    if (!userId) {
+      return null
     }
+
+    // Fetch user data from database
+    return await getUserById(userId)
+  } catch (error) {
+    console.error("💥 Error getting current user:", error)
+    return null
   }
 }

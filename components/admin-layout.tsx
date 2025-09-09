@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -30,6 +29,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const handleLogout = () => {
     localStorage.removeItem("user")
+    localStorage.removeItem("token")
     router.push("/")
   }
 
@@ -68,7 +68,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                       href={item.href}
                       className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100"
                     >
-                      <item.icon className="h-4 w-4" />
+                      {item.icon && <item.icon className="h-4 w-4" />}
                       <span>{item.name}</span>
                     </Link>
                   ))}
@@ -89,7 +89,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 href={item.href}
                 className="flex items-center space-x-1 text-gray-600 hover:text-gray-900"
               >
-                <item.icon className="h-4 w-4" />
+                {item.icon && <item.icon className="h-4 w-4" />}
                 <span>{item.name}</span>
               </Link>
             ))}
@@ -99,7 +99,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarFallback>{user.name?.charAt(0) || "A"}</AvatarFallback>
+                  <AvatarFallback>{user.full_name?.charAt(0) || "A"}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>

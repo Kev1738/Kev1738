@@ -1,34 +1,46 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Car, DollarSign, TrendingUp, MapPin, Clock, Star, AlertTriangle } from "lucide-react"
+import { Users, Car, DollarSign, TrendingUp, MapPin, Clock, Star, AlertTriangle, Loader2 } from "lucide-react"
 import { AdminLayout } from "@/components/admin-layout"
 
 export default function AdminDashboard() {
   const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
     if (userData) {
-      setUser(JSON.parse(userData))
+      try {
+        const parsedUser = JSON.parse(userData)
+        setUser(parsedUser)
+      } catch (error) {
+        console.error("Error parsing user data:", error)
+        router.push("/auth/login")
+      }
+    } else {
+      router.push("/auth/login")
     }
-  }, [])
+    setLoading(false)
+  }, [router])
 
   const stats = {
     totalRides: 1247,
     activeDrivers: 89,
     totalPassengers: 2341,
-    revenue: 45678.9,
+    revenue: 4567890,
     avgRating: 4.7,
   }
 
   const recentRides = [
-    { id: "R001", passenger: "John Doe", driver: "Sarah Wilson", status: "completed", fare: 24.5 },
-    { id: "R002", passenger: "Jane Smith", driver: "Mike Johnson", status: "in_progress", fare: 18.75 },
+    { id: "R001", passenger: "John Doe", driver: "Sarah Wilson", status: "completed", fare: 2450 },
+    { id: "R002", passenger: "Jane Smith", driver: "Mike Johnson", status: "in_progress", fare: 1875 },
     { id: "R003", passenger: "Bob Brown", driver: "Lisa Chen", status: "cancelled", fare: 0 },
   ]
 
@@ -38,7 +50,15 @@ export default function AdminDashboard() {
     { id: "D003", name: "Lisa Chen", rating: 4.6, rides: 156, status: "offline" },
   ]
 
-  if (!user) return <div>Loading...</div>
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) return null
 
   return (
     <AdminLayout>
@@ -90,7 +110,7 @@ export default function AdminDashboard() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats.revenue.toLocaleString()}</div>
+              <div className="text-2xl font-bold">₦{stats.revenue.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">+15% from last month</p>
             </CardContent>
           </Card>
@@ -144,7 +164,7 @@ export default function AdminDashboard() {
                         >
                           {ride.status.replace("_", " ")}
                         </Badge>
-                        <span className="font-bold">${ride.fare}</span>
+                        <span className="font-bold">₦{ride.fare}</span>
                       </div>
                     </div>
                   ))}
@@ -221,7 +241,7 @@ export default function AdminDashboard() {
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-2 text-yellow-600">
                     <AlertTriangle className="h-4 w-4" />
-                    <span className="text-sm">High demand in Downtown area</span>
+                    <span className="text-sm">High demand in Lagos Island area</span>
                   </div>
                   <div className="flex items-center gap-2 text-green-600">
                     <Clock className="h-4 w-4" />

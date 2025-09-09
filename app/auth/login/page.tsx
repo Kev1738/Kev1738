@@ -2,55 +2,31 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Eye, EyeOff, AlertCircle, CheckCircle, XCircle } from "lucide-react"
-
-interface EnvCheckResult {
-  success: boolean
-  message: string
-  variables: {
-    [key: string]: {
-      exists: boolean
-      value: string
-    }
-  }
-}
+import { Loader2, Car, AlertCircle, CheckCircle } from "lucide-react"
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
+  const [formData, setFormData] = useState({
+    email: "",
+    password: "",
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
-  const [envCheck, setEnvCheck] = useState<EnvCheckResult | null>(null)
   const router = useRouter()
 
-  // Check environment variables on component mount
-  useEffect(() => {
-    checkEnvironmentVariables()
-  }, [])
-
-  const checkEnvironmentVariables = async () => {
-    try {
-      const response = await fetch("/api/env-check")
-      const data = await response.json()
-      setEnvCheck(data)
-
-      if (!data.success) {
-        setError("Environment configuration issue detected. Please check console for details.")
-        console.error("Environment variables check failed:", data)
-      }
-    } catch (error) {
-      console.error("Failed to check environment variables:", error)
-      setError("Failed to verify system configuration")
-    }
+  // Check environment variables
+  const envCheck = {
+    supabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   }
+
+  const envMissing = !envCheck.supabaseUrl || !envCheck.supabaseKey
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -61,121 +37,189 @@ export default function LoginPage() {
     try {
       console.log("🔐 Attempting login...")
 
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      })
+      async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  e.preventDefault();
+  setError(null);
+  setLoading(true);
 
-      console.log("📡 Login response status:", response.status)
-      console.log("📡 Login response headers:", Object.fromEntries(response.headers.entries()))
+  try {
+    const form = new FormData(e.currentTarget);
+    const payload = {
+      email: String(form.get("email") || ""),
+      password: String(form.get("password") || ""),
+    };
 
-      let data
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const ctype = r.headers.get("content-type") || "";
+    if (!ctype.includes("application/json")) {
+      const text = await r.text(); // show what the server said
+      throw new Error(`Server returned non-JSON response (${r.status}). ${text}`);
+    }
+
+    const data = await r.json();
+    if (!r.ok || !data?.success) {
+      throw new Error(data?.message || "Login failed");
+    }
+
+    // success: redirect based on role
+    const role = data.data?.role;
+    if (role === "admin") location.href = "/admin/dashboard";
+    else if (role === "driver") location.href = "/driver/dashboard";
+    else location.href = "/passenger/dashboard";
+  } catch (err: any) {
+    setError(err.message || "Login error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+
+      console.log("📡 Response status:", response.status)
+      console.log("📡 Response headers:", Object.fromEntries(response.headers.entries()))
+
+      // Check if response is JSON
       const contentType = response.headers.get("content-type")
-
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json()
-        console.log("📦 Login response data:", data)
-      } else {
-        const text = await response.text()
-        console.error("❌ Non-JSON response:", text)
-        throw new Error("Server returned invalid response format")
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("❌ Response is not JSON, content-type:", contentType)
+        const responseText = await response.text()
+        console.error("❌ Response text:", responseText)
+        throw new Error("Server returned non-JSON response. Please check server logs.")
       }
 
-      if (data.success) {
-        console.log("✅ Login successful")
-        setSuccess("Login successful! Redirecting...")
+      const data = await response.json()
+      console.log("📦 Response data:", data)
 
-        // Store user data in localStorage for client-side access
-        if (data.user) {
-          localStorage.setItem("user", JSON.stringify(data.user))
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP ${response.status}`)
+      }
+
+      if (!data.success) {
+        throw new Error(data.message || "Login failed")
+      }
+
+      // Store user data
+      localStorage.setItem("user", JSON.stringify(data.data.user))
+      localStorage.setItem("token", data.data.token)
+
+      setSuccess("Login successful! Redirecting...")
+
+      // Redirect based on user role
+      const user = data.data.user
+      setTimeout(() => {
+        if (user.role === "admin") {
+          router.push("/admin/dashboard")
+        } else if (user.role === "driver") {
+          router.push("/driver/dashboard")
+        } else {
+          router.push("/passenger/dashboard")
         }
-
-        // Redirect based on user role
-        setTimeout(() => {
-          const role = data.user?.role
-          switch (role) {
-            case "admin":
-              router.push("/admin/dashboard")
-              break
-            case "driver":
-              router.push("/driver/dashboard")
-              break
-            case "passenger":
-              router.push("/passenger/dashboard")
-              break
-            default:
-              router.push("/dashboard")
-          }
-        }, 1000)
-      } else {
-        console.log("❌ Login failed:", data.message)
-        setError(data.message || "Login failed")
-      }
+      }, 1000)
     } catch (error) {
       console.error("💥 Login error:", error)
-      setError(error instanceof Error ? error.message : "An unexpected error occurred")
+      setError(error instanceof Error ? error.message : "Login failed")
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleDemoLogin = async (demoEmail: string, demoPassword: string) => {
-    setEmail(demoEmail)
-    setPassword(demoPassword)
+  const handleDemoLogin = async (email: string, password = "123456") => {
+    setFormData({ email, password })
     setError("")
     setSuccess("")
 
-    // Auto-submit after setting values
+    // Trigger form submission
     setTimeout(() => {
-      const form = document.getElementById("login-form") as HTMLFormElement
+      const form = document.querySelector("form")
       if (form) {
         form.requestSubmit()
       }
     }, 100)
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="w-full max-w-md space-y-6">
-        {/* Environment Status */}
-        {envCheck && (
-          <Card
-            className={`border-2 ${envCheck.success ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                {envCheck.success ? (
-                  <CheckCircle className="h-5 w-5 text-green-600" />
-                ) : (
-                  <XCircle className="h-5 w-5 text-red-600" />
-                )}
-                <span className={`text-sm font-medium ${envCheck.success ? "text-green-800" : "text-red-800"}`}>
-                  {envCheck.message}
-                </span>
-              </div>
-              {!envCheck.success && (
-                <div className="mt-2 text-xs text-red-700">
-                  <p>Missing environment variables:</p>
-                  <ul className="list-disc list-inside mt-1">
-                    {!envCheck.variables.NEXT_PUBLIC_SUPABASE_URL?.exists && <li>NEXT_PUBLIC_SUPABASE_URL</li>}
-                    {!envCheck.variables.SUPABASE_SERVICE_ROLE_KEY?.exists && <li>SUPABASE_SERVICE_ROLE_KEY</li>}
-                  </ul>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Login Form */}
-        <Card className="shadow-xl">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold text-center">Welcome Back</CardTitle>
-            <CardDescription className="text-center">Sign in to your RideShare account</CardDescription>
+  if (envMissing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <Car className="h-12 w-12 text-blue-600" />
+            </div>
+            <CardTitle className="text-2xl font-bold text-gray-900">RideShare Pro</CardTitle>
+            <CardDescription>Missing Environment Variables</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent>
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Please configure the following environment variables:
+                <ul className="mt-2 list-disc list-inside">
+                  {!envCheck.supabaseUrl && <li>NEXT_PUBLIC_SUPABASE_URL</li>}
+                  {!envCheck.supabaseKey && <li>NEXT_PUBLIC_SUPABASE_ANON_KEY</li>}
+                </ul>
+                <div className="mt-4 p-3 bg-gray-100 rounded text-sm">
+                  <p className="font-medium">To fix this:</p>
+                  <ol className="mt-1 list-decimal list-inside space-y-1">
+                    <li>Go to your Supabase project dashboard</li>
+                    <li>Navigate to Settings → API</li>
+                    <li>Copy the Project URL and anon public key</li>
+                    <li>Add them to your environment variables</li>
+                  </ol>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <Car className="h-12 w-12 text-blue-600" />
+          </div>
+          <CardTitle className="text-2xl font-bold text-gray-900">RideShare Pro</CardTitle>
+          <CardDescription>Sign in to your account</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="Enter your email"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Enter your password"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
             {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -184,117 +228,72 @@ export default function LoginPage() {
             )}
 
             {success && (
-              <Alert className="border-green-200 bg-green-50">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <AlertDescription className="text-green-800">{success}</AlertDescription>
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription className="text-green-600">{success}</AlertDescription>
               </Alert>
             )}
 
-            <form id="login-form" onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="email" className="text-sm font-medium">
-                  Email
-                </label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLoading}
-                />
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign In"
+              )}
+            </Button>
+          </form>
+
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
               </div>
-
-              <div className="space-y-2">
-                <label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    disabled={isLoading}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                    disabled={isLoading}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={isLoading || !envCheck?.success}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  "Sign In"
-                )}
-              </Button>
-            </form>
-
-            {/* Demo Credentials */}
-            <div className="space-y-3 pt-4 border-t">
-              <p className="text-sm text-gray-600 text-center">Demo Accounts (Password: 123456)</p>
-              <div className="grid gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDemoLogin("admin@rideshare.com", "123456")}
-                  disabled={isLoading || !envCheck?.success}
-                  className="text-xs"
-                >
-                  👑 Admin Demo
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDemoLogin("driver@driver.com", "123456")}
-                  disabled={isLoading || !envCheck?.success}
-                  className="text-xs"
-                >
-                  🚗 Driver Demo
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDemoLogin("user@example.com", "123456")}
-                  disabled={isLoading || !envCheck?.success}
-                  className="text-xs"
-                >
-                  👤 Passenger Demo
-                </Button>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-gray-50 text-gray-500">Demo Accounts</span>
               </div>
             </div>
 
-            <div className="text-center">
+            <div className="mt-4 space-y-2">
               <Button
-                variant="link"
-                onClick={() => router.push("/auth/register")}
+                variant="outline"
+                className="w-full bg-transparent"
+                onClick={() => handleDemoLogin("admin@rideshare.com")}
                 disabled={isLoading}
-                className="text-sm"
               >
-                Don't have an account? Sign up
+                Demo Admin Login
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full bg-transparent"
+                onClick={() => handleDemoLogin("driver@driver.com")}
+                disabled={isLoading}
+              >
+                Demo Driver Login
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full bg-transparent"
+                onClick={() => handleDemoLogin("user@example.com")}
+                disabled={isLoading}
+              >
+                Demo Passenger Login
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600">
+              Don't have an account?{" "}
+              <a href="/auth/register" className="font-medium text-blue-600 hover:text-blue-500">
+                Sign up
+              </a>
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

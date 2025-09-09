@@ -1,30 +1,32 @@
 "use client"
 
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, Mail } from "lucide-react"
+import { AlertTriangle, RefreshCw, Mail } from "lucide-react"
 
 interface ErrorAlertProps {
+  title?: string
   message: string
   onRetry?: () => void
   showSupport?: boolean
-  className?: string
 }
 
-export function ErrorAlert({ message, onRetry, showSupport = true, className }: ErrorAlertProps) {
+export function ErrorAlert({ title = "Error", message, onRetry, showSupport = true }: ErrorAlertProps) {
   return (
-    <Alert variant="destructive" className={className}>
-      <AlertCircle className="h-4 w-4" />
-      <AlertDescription className="flex flex-col gap-2">
-        <span>{message}</span>
+    <Alert variant="destructive" className="mb-4">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription className="mt-2">
+        <p className="mb-3">{message}</p>
         <div className="flex gap-2">
           {onRetry && (
-            <Button variant="outline" size="sm" onClick={onRetry} className="bg-transparent">
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              <RefreshCw className="h-4 w-4 mr-2" />
               Try Again
             </Button>
           )}
           {showSupport && (
-            <Button variant="outline" size="sm" className="bg-transparent">
+            <Button size="sm" variant="outline" onClick={() => window.open("mailto:support@rideshare.com")}>
               <Mail className="h-4 w-4 mr-2" />
               Contact Support
             </Button>

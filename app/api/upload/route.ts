@@ -1,12 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getCurrentUser } from "@/lib/auth"
 import { put } from "@vercel/blob"
-import { getSession } from "@/lib/session-manager"
-import { query } from "@/lib/database"
+import { supabase } from "@/lib/database"
+import { createErrorResponse, createSuccessResponse } from "@/lib/error-handler"
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getSession()
-    if (!session?.isAuthenticated) {
+    console.log("📤 File upload API called")
+
+    const user = await getCurrentUser()
+    if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!purpose) {
-      return NextResponse.json({ success: false, error: "Purpose is required" }, { status: 400 })
+      return NextResponse.json({ success: false, error: "Upload purpose is required" }, { status: 400 })
     }
 
     // Validate file type
@@ -40,31 +43,52 @@ export async function POST(request: NextRequest) {
     // Generate unique filename
     const timestamp = Date.now()
     const extension = file.name.split(".").pop()
-    const filename = `${purpose}/${session.id}/${timestamp}.${extension}`
+    const filename = `${user.id}/${purpose}/${timestamp}.${extension}`
+
+    console.log("📁 Uploading file:", filename)
 
     // Upload to Vercel Blob
     const blob = await put(filename, file, {
       access: "public",
     })
 
-    // Save file metadata to database
-    await query(
-      `INSERT INTO uploaded_files (user_id, file_name, file_url, file_type, file_size, purpose)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [session.id, file.name, blob.url, file.type, file.size, purpose],
-    )
+    console.log("✅ File uploaded to blob:", blob.url)
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        url: blob.url,
-        filename: file.name,
-        size: file.size,
-        type: file.type,
-      },
-    })
+    // Save file metadata to database
+    const { data: uploadedFile, error: dbError } = await supabase
+      .from("uploaded_files")
+      .insert({
+        user_id: user.id,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        file_url: blob.url,
+        upload_purpose: purpose,
+      })
+      .select()
+      .single()
+
+    if (dbError) {
+      console.error("❌ Database error:", dbError)
+      return NextResponse.json({ success: false, error: "Failed to save file metadata" }, { status: 500 })
+    }
+
+    console.log("✅ File metadata saved to database")
+
+    return NextResponse.json(
+      createSuccessResponse(
+        {
+          id: uploadedFile.id,
+          url: blob.url,
+          filename: file.name,
+          size: file.size,
+          type: file.type,
+        },
+        "File uploaded successfully",
+      ),
+    )
   } catch (error) {
-    console.error("Upload error:", error)
-    return NextResponse.json({ success: false, error: "Upload failed. Please try again." }, { status: 500 })
+    console.error("💥 Upload error:", error)
+    return NextResponse.json(createErrorResponse(error, "File upload failed"), { status: 500 })
   }
 }
