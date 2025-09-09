@@ -1,46 +1,88 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { loginUser } from "@/lib/auth"
-import { createErrorResponse } from "@/lib/error-handler"
+import { AuthService } from "@/lib/auth"
+import { testDatabaseConnection } from "@/lib/database"
 
 export async function POST(request: NextRequest) {
   try {
     console.log("🔐 Login API endpoint called")
 
-    let requestData
-    try {
-      requestData = await request.json()
-    } catch (parseError) {
-      console.error("❌ Failed to parse request body:", parseError)
-      return NextResponse.json(createErrorResponse(parseError, "Invalid request format"), { status: 400 })
+    // Test database connection first
+    const dbConnected = await testDatabaseConnection()
+    if (!dbConnected) {
+      console.error("❌ Database connection failed")
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Database connection failed. Please try again later.",
+        },
+        { status: 500 },
+      )
     }
 
-    const { email, password } = requestData
-    console.log("📋 Login attempt for:", email)
+    // Parse request body
+    let body
+    try {
+      body = await request.json()
+    } catch (error) {
+      console.error("❌ Invalid JSON in request body:", error)
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Invalid request format",
+        },
+        { status: 400 },
+      )
+    }
 
-    const result = await loginUser(email, password)
+    const { email, password } = body
 
-    console.log("📊 Login result:", {
-      success: result.success,
-      error: result.success ? null : (result as any).error,
-    })
+    // Validate input
+    if (!email || !password) {
+      console.log("❌ Missing email or password")
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Email and password are required",
+        },
+        { status: 400 },
+      )
+    }
 
-    if (result.success) {
-      return NextResponse.json(result, { status: 200 })
+    // Attempt login
+    const result = await AuthService.login({ email, password })
+
+    if (result.success && result.token) {
+      console.log("✅ Login successful, setting cookie")
+
+      // Create response with cookie
+      const response = NextResponse.json(result, { status: 200 })
+
+      // Set secure HTTP-only cookie
+      response.cookies.set("auth-token", result.token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 24 * 60 * 60, // 24 hours
+        path: "/",
+      })
+
+      return response
     } else {
-      const errorResult = result as any
-      const statusCode =
-        errorResult.code === "INVALID_CREDENTIALS"
-          ? 401
-          : errorResult.code === "ACCOUNT_DEACTIVATED"
-            ? 403
-            : errorResult.code === "DB_UNAVAILABLE"
-              ? 503
-              : 500
-
-      return NextResponse.json(result, { status: statusCode })
+      console.log("❌ Login failed:", result.message)
+      return NextResponse.json(result, { status: 401 })
     }
   } catch (error) {
-    console.error("💥 Login API critical error:", error)
-    return NextResponse.json(createErrorResponse(error, "Login service unavailable"), { status: 500 })
+    console.error("💥 Login API error:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Internal server error. Please try again.",
+      },
+      { status: 500 },
+    )
   }
+}
+
+export async function GET() {
+  return NextResponse.json({ message: "Login endpoint. Use POST method." }, { status: 405 })
 }

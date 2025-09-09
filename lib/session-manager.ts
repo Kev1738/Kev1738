@@ -1,187 +1,138 @@
-"use client"
+import crypto from "crypto"
+import { createSession, getSessionByToken, deleteSession, getUserById } from "./database"
 
-interface UserSession {
-  id: string
+export interface SessionData {
+  userId: string
   email: string
-  full_name: string
-  role: "passenger" | "driver" | "admin"
-  isAuthenticated: boolean
-  lastActivity: number
+  role: string
+  token: string
+  expiresAt: Date
 }
 
-class SessionManager {
-  private static instance: SessionManager
-  private session: UserSession | null = null
-  private listeners: Set<(session: UserSession | null) => void> = new Set()
-  private refreshTimer: NodeJS.Timeout | null = null
+export class SessionManager {
+  private static readonly SESSION_DURATION = 24 * 60 * 60 * 1000 // 24 hours
 
-  static getInstance(): SessionManager {
-    if (!SessionManager.instance) {
-      SessionManager.instance = new SessionManager()
-    }
-    return SessionManager.instance
+  static generateToken(): string {
+    return crypto.randomBytes(32).toString("hex")
   }
 
-  private constructor() {
-    this.initializeSession()
-  }
-
-  private async initializeSession() {
+  static async createUserSession(userId: string): Promise<SessionData | null> {
     try {
-      console.log("🔐 Initializing session...")
+      console.log("🎫 Creating session for user:", userId)
 
-      // Check if we have user data in localStorage (from successful login)
-      const storedUser = localStorage.getItem("user")
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser)
-          console.log("📱 Found stored user data:", userData.email)
-
-          this.session = {
-            ...userData,
-            isAuthenticated: true,
-            lastActivity: Date.now(),
-          }
-
-          this.notifyListeners()
-          this.startRefreshTimer()
-          return
-        } catch (error) {
-          console.error("❌ Invalid stored user data:", error)
-          localStorage.removeItem("user")
-        }
+      const user = await getUserById(userId)
+      if (!user) {
+        console.error("❌ User not found for session creation")
+        return null
       }
 
-      // Verify session with server
-      await this.verifySession()
+      const token = this.generateToken()
+      const expiresAt = new Date(Date.now() + this.SESSION_DURATION)
+
+      const session = await createSession(userId, token, expiresAt)
+      if (!session) {
+        console.error("❌ Failed to create session in database")
+        return null
+      }
+
+      console.log("✅ Session created successfully")
+      return {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        token,
+        expiresAt,
+      }
     } catch (error) {
-      console.error("💥 Session initialization failed:", error)
-      this.clearSession()
+      console.error("💥 Session creation error:", error)
+      return null
     }
   }
 
-  private async verifySession(): Promise<boolean> {
+  static async validateSession(token: string): Promise<SessionData | null> {
     try {
-      console.log("🔍 Verifying session with server...")
+      console.log("🔍 Validating session token")
 
-      const response = await fetch("/api/auth/verify", {
-        method: "GET",
-        credentials: "include",
-        headers: { "Cache-Control": "no-cache" },
-      })
-
-      // A 401/403 simply means “not signed in” – not an error scenario here.
-      if (response.status === 401 || response.status === 403) {
-        console.log("ℹ️ No active session")
-        this.clearSession() // ensure we’re clean
-        return false
+      const session = await getSessionByToken(token)
+      if (!session) {
+        console.log("ℹ️ Session not found")
+        return null
       }
 
-      if (!response.ok) {
-        const txt = await response.text()
-        console.warn(`⚠️ Session verify failed (${response.status}):`, txt)
-        this.clearSession()
-        return false
+      // Check if session is expired
+      const now = new Date()
+      const expiresAt = new Date(session.expires_at)
+
+      if (now > expiresAt) {
+        console.log("⏰ Session expired, cleaning up")
+        await this.destroySession(token)
+        return null
       }
 
-      const { data: userData } = await response.json()
-      console.log("✅ Session verified:", userData.email)
-
-      this.session = {
-        ...userData,
-        isAuthenticated: true,
-        lastActivity: Date.now(),
+      const user = await getUserById(session.user_id)
+      if (!user) {
+        console.error("❌ User not found for session")
+        await this.destroySession(token)
+        return null
       }
-      localStorage.setItem("user", JSON.stringify(userData))
-      this.notifyListeners()
-      this.startRefreshTimer()
-      return true
+
+      console.log("✅ Session validated successfully")
+      return {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        token,
+        expiresAt,
+      }
     } catch (error) {
-      console.error("💥 Session verification error:", error)
-      this.clearSession()
+      console.error("💥 Session validation error:", error)
+      return null
+    }
+  }
+
+  static async destroySession(token: string): Promise<boolean> {
+    try {
+      console.log("🗑️ Destroying session")
+      const result = await deleteSession(token)
+
+      if (result) {
+        console.log("✅ Session destroyed successfully")
+      } else {
+        console.error("❌ Failed to destroy session")
+      }
+
+      return result
+    } catch (error) {
+      console.error("💥 Session destruction error:", error)
       return false
     }
   }
 
-  private startRefreshTimer() {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer)
-    }
+  static async refreshSession(token: string): Promise<SessionData | null> {
+    try {
+      console.log("🔄 Refreshing session")
 
-    // Refresh session every 5 minutes
-    this.refreshTimer = setInterval(
-      () => {
-        if (this.session) {
-          this.verifySession()
-        }
-      },
-      5 * 60 * 1000,
-    )
-  }
-
-  private notifyListeners() {
-    this.listeners.forEach((listener) => {
-      try {
-        listener(this.session)
-      } catch (error) {
-        console.error("Session listener error:", error)
+      const sessionData = await this.validateSession(token)
+      if (!sessionData) {
+        return null
       }
-    })
-  }
 
-  getSession(): UserSession | null {
-    return this.session
-  }
+      // Destroy old session
+      await this.destroySession(token)
 
-  isAuthenticated(): boolean {
-    return this.session?.isAuthenticated ?? false
-  }
+      // Create new session
+      const newSession = await this.createUserSession(sessionData.userId)
 
-  setSession(userData: any) {
-    console.log("📝 Setting session for:", userData.email)
+      if (newSession) {
+        console.log("✅ Session refreshed successfully")
+      } else {
+        console.error("❌ Failed to refresh session")
+      }
 
-    this.session = {
-      ...userData,
-      isAuthenticated: true,
-      lastActivity: Date.now(),
-    }
-
-    localStorage.setItem("user", JSON.stringify(userData))
-    this.notifyListeners()
-    this.startRefreshTimer()
-  }
-
-  clearSession() {
-    console.log("🗑️ Clearing session")
-
-    this.session = null
-    localStorage.removeItem("user")
-
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer)
-      this.refreshTimer = null
-    }
-
-    this.notifyListeners()
-  }
-
-  subscribe(listener: (session: UserSession | null) => void): () => void {
-    this.listeners.add(listener)
-
-    // Immediately call with current session
-    listener(this.session)
-
-    // Return unsubscribe function
-    return () => {
-      this.listeners.delete(listener)
-    }
-  }
-
-  updateActivity() {
-    if (this.session) {
-      this.session.lastActivity = Date.now()
+      return newSession
+    } catch (error) {
+      console.error("💥 Session refresh error:", error)
+      return null
     }
   }
 }
-
-export const sessionManager = SessionManager.getInstance()

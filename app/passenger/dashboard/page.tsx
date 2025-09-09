@@ -1,349 +1,249 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Car, MapPin, Clock, DollarSign, Users, Navigation, Phone, Star } from "lucide-react"
-import { PassengerLayout } from "@/components/passenger-layout"
 import { AuthGuard } from "@/components/auth-guard"
-import { DashboardLoader } from "@/components/dashboard-loader"
+import { MobileHeader } from "@/components/mobile-header"
+import { MobileBottomNav } from "@/components/mobile-bottom-nav"
+import { MobileQuickActions } from "@/components/mobile-quick-actions"
+import { MobileRideCard } from "@/components/mobile-ride-card"
+import { LoadingSpinner } from "@/components/loading-spinner"
+import { ErrorAlert } from "@/components/error-alert"
 import { useSession } from "@/hooks/use-session"
+import { Car, Clock, DollarSign, Star } from "lucide-react"
+import { useRouter } from "next/navigation"
 
-export default function PassengerDashboard() {
+export default function PassengerDashboardPage() {
   const { session } = useSession()
-  const [bookingStep, setBookingStep] = useState(1)
-  const [rideType, setRideType] = useState("")
-  const [rideSubType, setRideSubType] = useState("")
-  const [pickup, setPickup] = useState("")
-  const [destination, setDestination] = useState("")
-  const [currentRide, setCurrentRide] = useState<any>(null)
-  const [dashboardData, setDashboardData] = useState<any>(null)
+  const router = useRouter()
+  const [activeRides, setActiveRides] = useState([])
+  const [recentRides, setRecentRides] = useState([])
+  const [stats, setStats] = useState({
+    activeRides: 0,
+    completedRides: 0,
+    totalSpent: 0,
+    averageRating: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleBookRide = async () => {
-    if (!pickup || !destination || !rideType || !rideSubType) return
+  useEffect(() => {
+    if (session) {
+      loadDashboardData()
+    }
+  }, [session])
 
+  const loadDashboardData = async () => {
     try {
-      const response = await fetch("/api/rides/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ride_type: rideSubType,
-          vehicle_type: rideType,
-          pickup_address: pickup,
-          pickup_latitude: 40.7128,
-          pickup_longitude: -74.006,
-          destination_address: destination,
-          destination_latitude: 40.7589,
-          destination_longitude: -73.9851,
-          fare_amount: calculateFare(rideType, rideSubType),
-        }),
-      })
+      setLoading(true)
+      setError(null)
 
-      const result = await response.json()
-
-      if (result.success) {
-        setCurrentRide({
-          id: result.ride.id,
-          driver: {
-            name: "Finding driver...",
-            rating: 0,
-            car: rideType,
-            plate: "---",
-            phone: "",
-          },
-          pickup,
-          destination,
-          type: rideSubType,
-          vehicleType: rideType,
-          fare: result.ride.fare_amount,
-          status: "finding_driver",
-          eta: "Finding...",
-        })
-        setBookingStep(3)
+      // Load active rides
+      const activeRidesResponse = await fetch("/api/rides/active")
+      const activeRidesResult = await activeRidesResponse.json()
+      if (activeRidesResponse.ok && activeRidesResult.success) {
+        setActiveRides(activeRidesResult.data)
       }
-    } catch (error) {
-      console.error("Booking error:", error)
-      alert("Failed to book ride")
+
+      // Load recent rides
+      const recentRidesResponse = await fetch("/api/rides/history?limit=3")
+      const recentRidesResult = await recentRidesResponse.json()
+      if (recentRidesResponse.ok && recentRidesResult.success) {
+        setRecentRides(recentRidesResult.data.rides)
+
+        // Calculate stats
+        const totalRides = recentRidesResult.data.total || 0
+        const totalSpent = recentRidesResult.data.rides.reduce((sum: number, ride: any) => sum + ride.fare, 0)
+
+        setStats({
+          activeRides: activeRidesResult.data?.length || 0,
+          completedRides: totalRides,
+          totalSpent,
+          averageRating: 4.8, // This would come from ratings API
+        })
+      }
+    } catch (err) {
+      console.error("Load dashboard data error:", err)
+      setError(err instanceof Error ? err.message : "Failed to load dashboard data")
+    } finally {
+      setLoading(false)
     }
   }
 
-  const calculateFare = (vehicleType: string, rideType: string) => {
-    const baseFares = {
-      bike: { shared: 8.5, private: 12.0 },
-      keke: { shared: 10.0, private: 15.0 },
-      car: { shared: 12.5, private: 18.75 },
+  const handleQuickAction = (actionId: string) => {
+    switch (actionId) {
+      case "book_ride":
+        router.push("/passenger/book-ride")
+        break
+      case "track_ride":
+        router.push("/passenger/trips")
+        break
+      case "payment":
+        router.push("/passenger/payment")
+        break
+      case "history":
+        router.push("/passenger/history")
+        break
+      default:
+        console.log("Unknown action:", actionId)
     }
-    return baseFares[vehicleType as keyof typeof baseFares][rideType as keyof typeof baseFares.bike]
   }
 
-  const shareLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const { latitude, longitude } = position.coords
-        alert(`Location shared: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`)
-      })
+  const handleRideAction = (action: string, rideId: string) => {
+    switch (action) {
+      case "track":
+        router.push(`/passenger/trips/${rideId}`)
+        break
+      case "call":
+        // Implement call functionality
+        console.log("Call driver for ride:", rideId)
+        break
+      case "message":
+        // Implement messaging functionality
+        console.log("Message driver for ride:", rideId)
+        break
+      default:
+        console.log("Unknown ride action:", action)
     }
   }
 
-  const handleDashboardDataLoaded = (data: any) => {
-    console.log("📊 Dashboard data loaded:", data)
-    setDashboardData(data)
-  }
-
-  if (!session) {
-    return null // AuthGuard will handle this
-  }
+  if (!session) return null
 
   return (
     <AuthGuard requiredRole="passenger">
-      <DashboardLoader userId={session.id} userRole={session.role} onDataLoaded={handleDashboardDataLoaded}>
-        <PassengerLayout>
-          <div className="space-y-6">
-            {/* Welcome Header */}
-            <div>
-              <h1 className="text-3xl font-bold">Welcome back, {session.full_name}!</h1>
-              <p className="text-gray-600">Where would you like to go today?</p>
+      <div className="min-h-screen bg-gray-50 pb-20">
+        <MobileHeader title="Dashboard" subtitle={`Welcome back, ${session.full_name?.split(" ")[0]}`} />
+
+        <div className="p-4 space-y-6">
+          {/* Error State */}
+          {error && <ErrorAlert message={error} onRetry={loadDashboardData} />}
+
+          {/* Loading State */}
+          {loading && (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner size="lg" text="Loading dashboard..." />
             </div>
+          )}
 
-            {/* Current Ride Status */}
-            {currentRide && (
-              <Card className="border-blue-200 bg-blue-50">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Car className="h-5 w-5 text-blue-600" />
-                    Current Ride - {currentRide.id}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">{currentRide.driver.name}</p>
-                      <p className="text-sm text-gray-600">
-                        {currentRide.driver.car} • {currentRide.driver.plate}
-                      </p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="text-sm">{currentRide.driver.rating}</span>
+          {/* Dashboard Content */}
+          {!loading && (
+            <>
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 gap-3">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-blue-500 p-2 rounded-lg">
+                        <Car className="h-5 w-5 text-white" />
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <Badge variant="secondary">ETA: {currentRide.eta}</Badge>
-                      <p className="text-lg font-bold mt-1">${currentRide.fare}</p>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-green-600" />
-                      <span className="text-sm">{currentRide.pickup}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-red-600" />
-                      <span className="text-sm">{currentRide.destination}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={shareLocation}>
-                      <Navigation className="h-4 w-4 mr-2" />
-                      Share Location
-                    </Button>
-                    <Button size="sm" variant="outline">
-                      <Phone className="h-4 w-4 mr-2" />
-                      Call Driver
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Booking Interface */}
-            {!currentRide && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Book a Ride</CardTitle>
-                  <CardDescription>Enter your pickup and destination</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {bookingStep === 1 && (
-                    <>
-                      <div className="space-y-2">
-                        <Label htmlFor="pickup">Pickup Location</Label>
-                        <Input
-                          id="pickup"
-                          placeholder="Enter pickup location"
-                          value={pickup}
-                          onChange={(e) => setPickup(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="destination">Destination</Label>
-                        <Input
-                          id="destination"
-                          placeholder="Enter destination"
-                          value={destination}
-                          onChange={(e) => setDestination(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Vehicle Type</Label>
-                        <Select value={rideType} onValueChange={setRideType}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select vehicle type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="car">
-                              <div className="flex items-center gap-2">
-                                <Car className="h-4 w-4" />
-                                <div>
-                                  <p>Car</p>
-                                  <p className="text-xs text-gray-500">Comfortable 4-seater</p>
-                                </div>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="keke">
-                              <div className="flex items-center gap-2">
-                                <Car className="h-4 w-4" />
-                                <div>
-                                  <p>Keke (Tricycle)</p>
-                                  <p className="text-xs text-gray-500">Affordable 3-wheeler</p>
-                                </div>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="bike">
-                              <div className="flex items-center gap-2">
-                                <Car className="h-4 w-4" />
-                                <div>
-                                  <p>Bike</p>
-                                  <p className="text-xs text-gray-500">Fast motorcycle ride</p>
-                                </div>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Ride Type</Label>
-                        <Select value={rideSubType} onValueChange={setRideSubType}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select ride type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="shared">
-                              <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4" />
-                                <div>
-                                  <p>Shared Ride</p>
-                                  <p className="text-xs text-gray-500">Save money, share the ride</p>
-                                </div>
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="private">
-                              <div className="flex items-center gap-2">
-                                <Car className="h-4 w-4" />
-                                <div>
-                                  <p>Private Ride</p>
-                                  <p className="text-xs text-gray-500">Just for you</p>
-                                </div>
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <Button
-                        onClick={() => setBookingStep(2)}
-                        className="w-full"
-                        disabled={!pickup || !destination || !rideType}
-                      >
-                        Find Rides
-                      </Button>
-                    </>
-                  )}
-
-                  {bookingStep === 2 && (
-                    <div className="space-y-4">
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                        <p>Finding nearby drivers...</p>
-                      </div>
-                      <Button onClick={handleBookRide} className="w-full">
-                        Confirm Booking
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Quick Actions */}
-            <div className="grid md:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5" />
-                    Recent Trips
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
                       <div>
-                        <p className="font-medium">Downtown to Airport</p>
-                        <p className="text-sm text-gray-600">Yesterday, 2:30 PM</p>
+                        <p className="text-2xl font-bold text-gray-900">{stats.activeRides}</p>
+                        <p className="text-sm text-gray-500">Active Rides</p>
                       </div>
-                      <span className="font-bold">$24.50</span>
                     </div>
-                    <Separator />
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">Home to Office</p>
-                        <p className="text-sm text-gray-600">Dec 15, 8:15 AM</p>
-                      </div>
-                      <span className="font-bold">$12.75</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5" />
-                    Payment & Wallet
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span>Wallet Balance</span>
-                      <span className="font-bold text-green-600">
-                        ${dashboardData?.["/api/wallet/balance"]?.balance?.toFixed(2) || "0.00"}
-                      </span>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-green-500 p-2 rounded-lg">
+                        <Clock className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{stats.completedRides}</p>
+                        <p className="text-sm text-gray-500">Total Trips</p>
+                      </div>
                     </div>
-                    <Button variant="outline" size="sm" className="w-full bg-transparent">
-                      Add Funds
-                    </Button>
-                    <Button variant="outline" size="sm" className="w-full bg-transparent">
-                      Payment Methods
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-purple-500 p-2 rounded-lg">
+                        <DollarSign className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">${stats.totalSpent.toFixed(0)}</p>
+                        <p className="text-sm text-gray-500">Total Spent</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-yellow-500 p-2 rounded-lg">
+                        <Star className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{stats.averageRating.toFixed(1)}</p>
+                        <p className="text-sm text-gray-500">Your Rating</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Quick Actions */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Actions</h2>
+                <MobileQuickActions userRole="passenger" stats={stats} onAction={handleQuickAction} />
+              </div>
+
+              {/* Active Rides */}
+              {activeRides.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Active Rides</h2>
+                    <Badge variant="secondary">{activeRides.length}</Badge>
+                  </div>
+                  <div className="space-y-3">
+                    {activeRides.map((ride: any) => (
+                      <MobileRideCard key={ride.id} ride={ride} userRole="passenger" onAction={handleRideAction} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Rides */}
+              {recentRides.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg font-semibold text-gray-900">Recent Rides</h2>
+                    <Button variant="ghost" size="sm" onClick={() => router.push("/passenger/history")}>
+                      View All
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </PassengerLayout>
-      </DashboardLoader>
+                  <div className="space-y-3">
+                    {recentRides.map((ride: any) => (
+                      <MobileRideCard key={ride.id} ride={ride} userRole="passenger" compact={true} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {activeRides.length === 0 && recentRides.length === 0 && (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Car className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No rides yet</h3>
+                    <p className="text-gray-500 mb-4">Book your first ride to get started!</p>
+                    <Button onClick={() => router.push("/passenger/book-ride")}>Book a Ride</Button>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+
+        <MobileBottomNav userRole="passenger" />
+      </div>
     </AuthGuard>
   )
 }

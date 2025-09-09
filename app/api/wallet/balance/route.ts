@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
-import { getWalletBalance } from "@/lib/wallet"
-import { createErrorResponse } from "@/lib/error-handler"
+import { createErrorResponse, createSuccessResponse } from "@/lib/error-handler"
+import { supabase } from "@/lib/database"
 
 export async function GET() {
   try {
@@ -12,15 +12,41 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const result = await getWalletBalance(user.id)
+    console.log("🔍 Fetching wallet for user:", user.id)
 
-    if (result.success) {
-      return NextResponse.json(result, { status: 200 })
-    } else {
-      return NextResponse.json(result, { status: 400 })
+    // Get or create wallet
+    let { data: wallet, error } = await supabase.from("wallets").select("*").eq("user_id", user.id).single()
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        // Wallet doesn't exist, create one
+        console.log("🔧 Creating wallet for user:", user.id)
+
+        const { data: newWallet, error: createError } = await supabase
+          .from("wallets")
+          .insert({
+            user_id: user.id,
+            balance: 0.0,
+          })
+          .select()
+          .single()
+
+        if (createError) {
+          console.error("❌ Failed to create wallet:", createError)
+          throw createError
+        }
+
+        wallet = newWallet
+      } else {
+        console.error("❌ Wallet fetch error:", error)
+        throw error
+      }
     }
+
+    console.log("✅ Wallet balance fetched successfully:", wallet.balance)
+    return NextResponse.json(createSuccessResponse(wallet), { status: 200 })
   } catch (error) {
-    console.error("Wallet balance API error:", error)
+    console.error("💥 Wallet balance API error:", error)
     return NextResponse.json(createErrorResponse(error, "Failed to fetch wallet balance"), { status: 500 })
   }
 }
