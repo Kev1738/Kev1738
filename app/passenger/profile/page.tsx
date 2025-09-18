@@ -1,181 +1,238 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { User, Phone, Mail, MapPin, Bell, Shield, Star, AlertCircle } from "lucide-react"
-import { PassengerLayout } from "@/components/passenger-layout"
-import { AuthGuard } from "@/components/auth-guard"
-import { useSession } from "@/hooks/use-session"
-import { LoadingSpinner } from "@/components/loading-spinner"
 import { ImageUpload } from "@/components/image-upload"
+import { useSession } from "@/hooks/use-session"
+import { User, Mail, MapPin, Calendar, Star, Settings, Camera, Save, AlertCircle, CheckCircle } from "lucide-react"
 
-export default function PassengerProfilePage() {
-  const { session, isLoading: sessionLoading } = useSession()
-  const [profile, setProfile] = useState<any>(null)
+interface UserProfile {
+  id: string
+  email: string
+  full_name: string
+  phone: string
+  role: string
+  profile_image_url?: string
+  created_at: string
+  updated_at: string
+  address?: string
+  emergency_contact_name?: string
+  preferred_payment_method?: string
+  rating?: number
+  total_rides?: number
+  wallet_balance?: number
+}
+
+export default function PassengerProfile() {
+  const router = useRouter()
+  const { session, loading: sessionLoading } = useSession()
+  const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     full_name: "",
-    email: "",
     phone: "",
-    date_of_birth: "",
-    gender: "",
-    address: "",
-    emergency_contact_name: "",
-    emergency_contact_phone: "",
-    profile_image_url: "",
-  })
-  const [preferences, setPreferences] = useState({
-    notifications: true,
-    sms_updates: true,
-    email_updates: false,
-    location_sharing: true,
-    ride_sharing: true,
+    emergency_contact: "",
+    home_address: "",
+    work_address: "",
+    preferred_payment_method: "card",
   })
 
   useEffect(() => {
-    // Only load profile when session is available and not loading
-    if (session && !sessionLoading) {
-      console.log("🔄 Session available, loading profile for:", session.email)
+    if (!sessionLoading) {
+      if (!session) {
+        console.log("No session found, redirecting to login")
+        router.push("/auth/login")
+        return
+      }
+
+      if (session.role !== "passenger") {
+        console.log("User is not a passenger, redirecting")
+        router.push(`/${session.role}/dashboard`)
+        return
+      }
+
       loadProfile()
-    } else if (!sessionLoading && !session) {
-      console.log("❌ No session available")
-      setError("Please log in to view your profile")
-      setLoading(false)
     }
-  }, [session, sessionLoading])
+  }, [session, sessionLoading, router])
 
   const loadProfile = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      console.log("📡 Fetching profile data...")
+      console.log("Loading passenger profile...")
 
       const response = await fetch("/api/user/profile", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
-        credentials: "include", // Include cookies for authentication
+        credentials: "include",
       })
 
-      console.log("📡 Profile API response status:", response.status)
+      console.log("Profile response status:", response.status)
 
       if (!response.ok) {
         if (response.status === 401) {
-          throw new Error("Please log in to access your profile")
+          console.log("Unauthorized, redirecting to login")
+          router.push("/auth/login")
+          return
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        console.error("Profile fetch failed:", response.status, errorData)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
       }
 
-      const result = await response.json()
-      console.log("📡 Profile API result:", result.success ? "Success" : "Failed")
+      const data = await response.json()
+      console.log("Profile data received:", data)
 
-      if (result.success) {
-        const profileData = result.data
-        setProfile(profileData)
+      if (data.success) {
+        setProfile(data.data)
         setFormData({
-          full_name: profileData.full_name || "",
-          email: profileData.email || "",
-          phone: profileData.phone || "",
-          date_of_birth: profileData.date_of_birth || "",
-          gender: profileData.gender || "",
-          address: profileData.address || "",
-          emergency_contact_name: profileData.emergency_contact_name || "",
-          emergency_contact_phone: profileData.emergency_contact_phone || "",
-          profile_image_url: profileData.profile_image_url || "",
+          full_name: data.data.full_name || "",
+          phone: data.data.phone || "",
+          emergency_contact: data.data.emergency_contact_name || "",
+          home_address: data.data.address || "",
+          work_address: data.data.work_address || "",
+          preferred_payment_method: data.data.preferred_payment_method || "card",
         })
-        console.log("✅ Profile loaded successfully")
       } else {
-        throw new Error(result.error || "Failed to load profile")
+        setError(data.error || "Failed to load profile")
       }
     } catch (err) {
-      console.error("❌ Load profile error:", err)
-      const errorMessage = err instanceof Error ? err.message : "Failed to load profile"
-      setError(errorMessage)
-
-      // If unauthorized, redirect to login
-      if (errorMessage.includes("log in") || errorMessage.includes("Unauthorized")) {
-        setTimeout(() => {
-          window.location.href = "/auth/login"
-        }, 2000)
-      }
+      console.error("Load profile error:", err)
+      setError(err instanceof Error ? err.message : "Failed to load profile")
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSaveProfile = async () => {
+  const handleSave = async () => {
     try {
       setSaving(true)
+      setError(null)
+      setSuccess(null)
 
+      const response = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(formData),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(errorData.error || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      if (data.success) {
+        setProfile(data.data)
+        setSuccess("Profile updated successfully!")
+        setTimeout(() => setSuccess(null), 3000)
+      } else {
+        setError(data.error || "Failed to save profile")
+      }
+    } catch (err) {
+      console.error("Save profile error:", err)
+      setError(err instanceof Error ? err.message : "Failed to save profile")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleImageUpload = async (imageUrl: string) => {
+    try {
       const response = await fetch("/api/user/profile", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          profile_image_url: imageUrl,
+        }),
       })
 
-      const result = await response.json()
-
-      if (result.success) {
-        setProfile(result.data)
-        alert("Profile updated successfully!")
-      } else {
-        throw new Error(result.error || "Failed to update profile")
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setProfile(data.data)
+          setSuccess("Profile image updated!")
+          setTimeout(() => setSuccess(null), 3000)
+        }
       }
     } catch (err) {
-      console.error("Save profile error:", err)
-      alert(err instanceof Error ? err.message : "Failed to update profile. Please try again.")
-    } finally {
-      setSaving(false)
+      console.error("Image upload error:", err)
+      setError("Failed to update profile image")
     }
   }
 
-  const handleImageUploaded = (imageUrl: string) => {
-    setFormData((prev) => ({ ...prev, profile_image_url: imageUrl }))
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    })
-  }
-
-  // Show loading while session is being verified
-  if (sessionLoading) {
+  if (sessionLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" text="Verifying session..." />
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-2">Loading profile...</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
-  // Show error if no session
-  if (!session) {
+  if (error && !profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center text-center space-y-4">
-              <AlertCircle className="h-12 w-12 text-red-500" />
-              <h2 className="text-xl font-semibold">Authentication Required</h2>
-              <p className="text-gray-600">Please log in to access your profile.</p>
-              <Button onClick={() => (window.location.href = "/auth/login")}>Go to Login</Button>
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-red-600 mb-2">Error Loading Profile</h3>
+              <p className="text-gray-600 mb-4">{error}</p>
+              <div className="space-x-2">
+                <Button onClick={loadProfile} variant="outline">
+                  Try Again
+                </Button>
+                <Button onClick={() => router.push("/auth/login")} variant="default">
+                  Go to Login
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <p>Profile not found</p>
+              <Button onClick={loadProfile} className="mt-4">
+                Refresh
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -184,372 +241,228 @@ export default function PassengerProfilePage() {
   }
 
   return (
-    <AuthGuard requiredRole="passenger">
-      <PassengerLayout>
-        <div className="space-y-6">
-          {/* Header */}
-          <div>
-            <h1 className="text-3xl font-bold">Profile Settings</h1>
-            <p className="text-gray-600">Manage your account information and preferences</p>
-          </div>
-
-          {/* Error State */}
-          {error && (
-            <Card className="border-red-200 bg-red-50">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2">
-                  <AlertCircle className="h-5 w-5 text-red-500" />
-                  <p className="text-red-700">{error}</p>
-                </div>
-                <Button onClick={loadProfile} variant="outline" size="sm" className="mt-3 bg-transparent">
-                  Retry
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Loading State */}
-          {loading && (
-            <div className="flex justify-center py-8">
-              <LoadingSpinner size="lg" text="Loading profile..." />
-            </div>
-          )}
-
-          {/* Profile Content */}
-          {!loading && profile && (
-            <>
-              {/* Profile Header */}
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-6">
-                    <ImageUpload
-                      currentImage={formData.profile_image_url}
-                      onImageUploaded={handleImageUploaded}
-                      purpose="profile_image"
-                      size="lg"
-                      fallbackText={profile.full_name?.charAt(0) || "U"}
-                    />
-                    <div className="flex-1">
-                      <h2 className="text-2xl font-bold">{profile.full_name}</h2>
-                      <p className="text-gray-600">{profile.email}</p>
-                      <div className="flex items-center gap-4 mt-2">
-                        <Badge variant="secondary">
-                          Member since {profile.created_at ? formatDate(profile.created_at) : "Recently"}
-                        </Badge>
-                        <div className="flex items-center gap-1">
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          <span className="text-sm font-medium">4.9</span>
-                        </div>
-                        <Badge variant="outline">{profile.statistics?.total_rides || 0} rides</Badge>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Tabs defaultValue="personal" className="space-y-4">
-                <TabsList>
-                  <TabsTrigger value="personal">Personal Info</TabsTrigger>
-                  <TabsTrigger value="preferences">Preferences</TabsTrigger>
-                  <TabsTrigger value="security">Security</TabsTrigger>
-                  <TabsTrigger value="verification">Verification</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="personal" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <User className="h-5 w-5" />
-                        Personal Information
-                      </CardTitle>
-                      <CardDescription>Update your personal details</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="full_name">Full Name</Label>
-                          <Input
-                            id="full_name"
-                            value={formData.full_name}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, full_name: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="email">Email Address</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            value={formData.email}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="phone">Phone Number</Label>
-                          <Input
-                            id="phone"
-                            value={formData.phone}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="date_of_birth">Date of Birth</Label>
-                          <Input
-                            id="date_of_birth"
-                            type="date"
-                            value={formData.date_of_birth}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, date_of_birth: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="gender">Gender</Label>
-                          <Select
-                            value={formData.gender}
-                            onValueChange={(value) => setFormData((prev) => ({ ...prev, gender: value }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select gender" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="male">Male</SelectItem>
-                              <SelectItem value="female">Female</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
-                              <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label htmlFor="emergency_contact_name">Emergency Contact Name</Label>
-                          <Input
-                            id="emergency_contact_name"
-                            value={formData.emergency_contact_name}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, emergency_contact_name: e.target.value }))
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="emergency_contact_phone">Emergency Contact Phone</Label>
-                          <Input
-                            id="emergency_contact_phone"
-                            value={formData.emergency_contact_phone}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, emergency_contact_phone: e.target.value }))
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="address">Home Address</Label>
-                        <Textarea
-                          id="address"
-                          value={formData.address}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-                          placeholder="Enter your full address"
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="preferences" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Bell className="h-5 w-5" />
-                        Notification Preferences
-                      </CardTitle>
-                      <CardDescription>Choose how you want to be notified</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Push Notifications</p>
-                          <p className="text-sm text-gray-600">Receive notifications in the app</p>
-                        </div>
-                        <Switch
-                          checked={preferences.notifications}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, notifications: checked }))}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">SMS Updates</p>
-                          <p className="text-sm text-gray-600">Get ride updates via text message</p>
-                        </div>
-                        <Switch
-                          checked={preferences.sms_updates}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, sms_updates: checked }))}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Email Updates</p>
-                          <p className="text-sm text-gray-600">Receive promotional emails and updates</p>
-                        </div>
-                        <Switch
-                          checked={preferences.email_updates}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, email_updates: checked }))}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <MapPin className="h-5 w-5" />
-                        Privacy Preferences
-                      </CardTitle>
-                      <CardDescription>Control your privacy settings</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Location Sharing</p>
-                          <p className="text-sm text-gray-600">Share location with drivers during rides</p>
-                        </div>
-                        <Switch
-                          checked={preferences.location_sharing}
-                          onCheckedChange={(checked) =>
-                            setPreferences((prev) => ({ ...prev, location_sharing: checked }))
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">Ride Sharing</p>
-                          <p className="text-sm text-gray-600">Allow shared rides with other passengers</p>
-                        </div>
-                        <Switch
-                          checked={preferences.ride_sharing}
-                          onCheckedChange={(checked) => setPreferences((prev) => ({ ...prev, ride_sharing: checked }))}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="security" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="h-5 w-5" />
-                        Security Settings
-                      </CardTitle>
-                      <CardDescription>Manage your account security</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="current_password">Current Password</Label>
-                          <Input id="current_password" type="password" />
-                        </div>
-                        <div>
-                          <Label htmlFor="new_password">New Password</Label>
-                          <Input id="new_password" type="password" />
-                        </div>
-                        <div>
-                          <Label htmlFor="confirm_password">Confirm New Password</Label>
-                          <Input id="confirm_password" type="password" />
-                        </div>
-                        <Button>Update Password</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Two-Factor Authentication</CardTitle>
-                      <CardDescription>Add an extra layer of security to your account</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">SMS Authentication</p>
-                          <p className="text-sm text-gray-600">Receive verification codes via SMS</p>
-                        </div>
-                        <Button variant="outline">Enable</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                <TabsContent value="verification" className="space-y-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Account Verification</CardTitle>
-                      <CardDescription>Verify your account for enhanced security and features</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Phone className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Phone Number</p>
-                            <p className="text-sm text-gray-600">{profile.phone || "Not provided"}</p>
-                          </div>
-                        </div>
-                        <Badge variant={profile.phone ? "default" : "secondary"}>
-                          {profile.phone ? "Verified" : "Not Verified"}
-                        </Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Mail className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Email Address</p>
-                            <p className="text-sm text-gray-600">{profile.email}</p>
-                          </div>
-                        </div>
-                        <Badge variant="default">Verified</Badge>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Shield className="h-5 w-5" />
-                          <div>
-                            <p className="font-medium">Identity Verification</p>
-                            <p className="text-sm text-gray-600">Upload government ID for verification</p>
-                          </div>
-                        </div>
-                        <Button variant="outline">Upload ID</Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
-
-              {/* Save Button */}
-              <div className="flex justify-end">
-                <Button onClick={handleSaveProfile} disabled={saving} size="lg">
-                  {saving ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      <span className="ml-2">Saving...</span>
-                    </>
-                  ) : (
-                    "Save Profile"
-                  )}
-                </Button>
-              </div>
-            </>
-          )}
+    <div className="container mx-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">My Profile</h1>
+          <p className="text-gray-600">Manage your account information and preferences</p>
         </div>
-      </PassengerLayout>
-    </AuthGuard>
+        <Badge variant="secondary" className="capitalize">
+          {profile.role}
+        </Badge>
+      </div>
+
+      {/* Success/Error Messages */}
+      {success && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-green-800">
+              <CheckCircle className="h-5 w-5" />
+              <span>{success}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-red-800">
+              <AlertCircle className="h-5 w-5" />
+              <span>{error}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Profile Picture and Basic Info */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Profile Picture
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col items-center space-y-4">
+              <Avatar className="h-24 w-24">
+                <AvatarImage src={profile.profile_image_url || "/placeholder.svg?height=96&width=96"} />
+                <AvatarFallback className="text-lg">
+                  {profile.full_name
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+
+              <ImageUpload onUpload={handleImageUpload}>
+                <Button variant="outline" size="sm">
+                  <Camera className="h-4 w-4 mr-2" />
+                  Change Photo
+                </Button>
+              </ImageUpload>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <Mail className="h-4 w-4 text-gray-500" />
+                <span>{profile.email}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Calendar className="h-4 w-4 text-gray-500" />
+                <span>Member since {new Date(profile.created_at).toLocaleDateString()}</span>
+              </div>
+              {profile.rating && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Star className="h-4 w-4 text-yellow-500" />
+                  <span>{profile.rating.toFixed(1)} rating</span>
+                </div>
+              )}
+              {profile.total_rides !== undefined && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-gray-500" />
+                  <span>{profile.total_rides} total rides</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Personal Information */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Personal Information
+            </CardTitle>
+            <CardDescription>Update your personal details and contact information</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="full_name">Full Name</Label>
+                <Input
+                  id="full_name"
+                  value={formData.full_name}
+                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                  placeholder="Enter your full name"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="Enter your phone number"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="emergency_contact">Emergency Contact</Label>
+                <Input
+                  id="emergency_contact"
+                  value={formData.emergency_contact}
+                  onChange={(e) => setFormData({ ...formData, emergency_contact: e.target.value })}
+                  placeholder="Emergency contact number"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="preferred_payment_method">Preferred Payment</Label>
+                <select
+                  id="preferred_payment_method"
+                  value={formData.preferred_payment_method}
+                  onChange={(e) => setFormData({ ...formData, preferred_payment_method: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="card">Credit/Debit Card</option>
+                  <option value="cash">Cash</option>
+                  <option value="wallet">Digital Wallet</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="home_address">Home Address</Label>
+                <Input
+                  id="home_address"
+                  value={formData.home_address}
+                  onChange={(e) => setFormData({ ...formData, home_address: e.target.value })}
+                  placeholder="Enter your home address"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="work_address">Work Address</Label>
+                <Input
+                  id="work_address"
+                  value={formData.work_address}
+                  onChange={(e) => setFormData({ ...formData, work_address: e.target.value })}
+                  placeholder="Enter your work address"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Changes
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Account Statistics */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Star className="h-5 w-5" />
+            Account Statistics
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">{profile.total_rides || 0}</div>
+              <div className="text-sm text-gray-600">Total Rides</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">
+                {profile.rating ? profile.rating.toFixed(1) : "N/A"}
+              </div>
+              <div className="text-sm text-gray-600">Average Rating</div>
+            </div>
+            <div className="text-center p-4 bg-purple-50 rounded-lg">
+              <div className="text-2xl font-bold text-purple-600 capitalize">
+                {profile.preferred_payment_method || "Not Set"}
+              </div>
+              <div className="text-sm text-gray-600">Payment Method</div>
+            </div>
+            <div className="text-center p-4 bg-orange-50 rounded-lg">
+              <div className="text-2xl font-bold text-orange-600">${profile.wallet_balance?.toFixed(2) || "0.00"}</div>
+              <div className="text-sm text-gray-600">Wallet Balance</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
