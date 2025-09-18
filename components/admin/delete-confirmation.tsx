@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -10,78 +9,92 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { AlertTriangle } from "lucide-react"
-import { toast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
+import { AlertTriangle, Loader2 } from "lucide-react"
 
-interface DeleteConfirmationProps {
-  isOpen: boolean
-  onClose: () => void
-  onSuccess: () => void
-  title: string
-  description: string
-  itemName: string
-  deleteUrl: string
+interface User {
+  id: string
+  name: string
+  email: string
+  phone: string
+  role: "admin" | "driver" | "passenger"
+  status: "active" | "inactive"
+  created_at: string
 }
 
-export function DeleteConfirmation({
-  isOpen,
-  onClose,
-  onSuccess,
-  title,
-  description,
-  itemName,
-  deleteUrl,
-}: DeleteConfirmationProps) {
+interface DeleteConfirmationProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  user: User | null
+  onConfirm: () => void
+}
+
+export function DeleteConfirmation({ open, onOpenChange, user, onConfirm }: DeleteConfirmationProps) {
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleDelete = async () => {
+    if (!user) return
+
     setLoading(true)
+    setError(null)
 
     try {
-      const response = await fetch(deleteUrl, {
+      const response = await fetch(`/api/admin/users/${user.id}`, {
         method: "DELETE",
       })
 
-      const result = await response.json()
-
-      if (response.ok && result.success) {
-        toast({
-          title: "Success",
-          description: result.message || `${itemName} deleted successfully`,
-        })
-        onSuccess()
-        onClose()
-      } else {
-        throw new Error(result.error || `Failed to delete ${itemName.toLowerCase()}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to delete user")
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : `Failed to delete ${itemName.toLowerCase()}`
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      })
+
+      onConfirm()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred")
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-6 w-6 text-red-600" />
-            <DialogTitle>{title}</DialogTitle>
-          </div>
-          <DialogDescription className="pt-2">{description}</DialogDescription>
+          <DialogTitle className="flex items-center space-x-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span>Delete User</span>
+          </DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete this user? This action cannot be undone.
+          </DialogDescription>
         </DialogHeader>
+
+        {user && (
+          <div className="py-4">
+            <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <p>
+                <strong>Name:</strong> {user.name}
+              </p>
+              <p>
+                <strong>Email:</strong> {user.email}
+              </p>
+              <p>
+                <strong>Role:</strong> {user.role}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="text-red-600 text-sm">{error}</div>}
+
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" variant="destructive" onClick={handleDelete} disabled={loading}>
-            {loading ? "Deleting..." : "Delete"}
+          <Button variant="destructive" onClick={handleDelete} disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Delete User
           </Button>
         </DialogFooter>
       </DialogContent>
