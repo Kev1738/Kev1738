@@ -58,7 +58,7 @@ export function PassengerLayout({ children }: PassengerLayoutProps) {
               <SheetContent side="left" className="w-64">
                 <div className="flex items-center space-x-2 mb-6">
                   <Car className="h-6 w-6 text-blue-600" />
-                  <span className="text-lg font-bold">RideShare Pro</span>
+                  <span className="text-lg font-bold">Muf</span>
                 </div>
                 <nav className="space-y-2">
                   {navigation.map((item) => (
@@ -77,7 +77,7 @@ export function PassengerLayout({ children }: PassengerLayoutProps) {
 
             <Link href="/passenger/dashboard" className="flex items-center space-x-2">
               <Car className="h-6 w-6 text-blue-600" />
-              <span className="text-lg font-bold hidden sm:block">RideShare Pro</span>
+              <span className="text-lg font-bold hidden sm:block">Muf</span>
             </Link>
           </div>
 

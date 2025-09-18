@@ -1,83 +1,78 @@
-export const runtime = "nodejs";
+import { type NextRequest, NextResponse } from "next/server"
+import { supabase } from "@/lib/database"
+import { createSession } from "@/lib/auth"
+import { createErrorResponse, createSuccessResponse } from "@/lib/error-handler"
 
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
-
-const Body = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  // NOTE: if you only have anon key and your tables are Unrestricted, this still works.
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-export async function POST(req: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // 1) Validate body
-    const raw = await req.json().catch(() => null);
-    const parsed = Body.safeParse(raw);
-    if (!parsed.success) {
-      return NextResponse.json({ success: false, message: "Invalid request body" }, { status: 400 });
-    }
-    const { email, password } = parsed.data;
+    console.log("🔐 Login API called")
 
-    // 2) DB client guard
-    const supa = getAdminClient();
-    if (!supa) {
-      return NextResponse.json(
-        { success: false, message: "Server misconfigured: Supabase env vars missing" },
-        { status: 500 }
-      );
+    const body = await request.json()
+    const { email, password } = body
+
+    // Validate input
+    if (!email || !password) {
+      return NextResponse.json(createErrorResponse(null, "Email and password are required"), { status: 400 })
     }
 
-    // 3) Find user
-    const { data: user, error } = await supa
+    console.log("Attempting login for:", email)
+
+    // Get user by email
+    const { data: user, error } = await supabase
       .from("users")
-      .select("id, email, role, is_active, password")
-      .eq("email", email)
-      .maybeSingle();
+      .select("*")
+      .eq("email", email.toLowerCase().trim())
+      .eq("is_active", true)
+      .single()
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return NextResponse.json({ success: false, message: "Database error" }, { status: 500 });
-    }
-    if (!user || user.is_active === false) {
-      return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 });
+    if (error || !user) {
+      console.log("❌ User not found:", email, error?.message)
+      return NextResponse.json(createErrorResponse(null, "Invalid email or password"), { status: 401 })
     }
 
-    // 4) Password check (supports plain or md5-hash in your seed)
-    const stored = String(user.password ?? "");
-    const isMd5 = /^[a-f0-9]{32}$/i.test(stored);
-    let ok = false;
-    if (isMd5) {
-      const crypto = await import("crypto");
-      ok = crypto.createHash("md5").update(password).digest("hex") === stored;
-    } else {
-      ok = stored === password;
-    }
-    if (!ok) {
-      return NextResponse.json({ success: false, message: "Invalid credentials" }, { status: 401 });
+    // Verify password (in production, use bcrypt.compare)
+    if (user.password !== password) {
+      console.log("❌ Invalid password for user:", email)
+      return NextResponse.json(createErrorResponse(null, "Invalid email or password"), { status: 401 })
     }
 
-    // 5) Minimal session cookie (upgrade to JWT later)
-    const session = { id: user.id, email: user.email, role: user.role };
-    const res = NextResponse.json({ success: true, data: session, message: "Login successful" });
-    res.cookies.set("auth-token", Buffer.from(JSON.stringify(session)).toString("base64"), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    });
-    return res;
-  } catch (err) {
-    console.error("Login handler error:", err);
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 });
+    // Check if user is active
+    if (!user.is_active) {
+      return NextResponse.json(createErrorResponse(null, "Account is deactivated"), { status: 403 })
+    }
+
+    console.log("✅ User authenticated:", user.email, "Role:", user.role)
+
+    // Create session
+    const authUser = {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role as "passenger" | "driver" | "admin",
+      phone: user.phone,
+      profile_image_url: user.profile_image_url,
+      is_verified: user.is_verified,
+    }
+
+    const sessionResult = await createSession(authUser)
+    if (!sessionResult.success) {
+      console.error("❌ Session creation failed:", sessionResult.error)
+      return NextResponse.json(createErrorResponse(sessionResult.error, "Login failed"), { status: 500 })
+    }
+
+    console.log("✅ Login successful for user:", user.email)
+
+    return NextResponse.json(
+      createSuccessResponse(
+        {
+          user: authUser,
+          token: sessionResult.token,
+        },
+        "Login successful",
+      ),
+    )
+  } catch (error) {
+    console.error("💥 Login error:", error)
+    return NextResponse.json(createErrorResponse(error, "Login failed"), { status: 500 })
   }
 }

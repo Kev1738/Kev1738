@@ -70,10 +70,10 @@ class SessionManager {
         headers: { "Cache-Control": "no-cache" },
       })
 
-      // A 401/403 simply means “not signed in” – not an error scenario here.
+      // A 401/403 simply means "not signed in" – not an error scenario here.
       if (response.status === 401 || response.status === 403) {
         console.log("ℹ️ No active session")
-        this.clearSession() // ensure we’re clean
+        this.clearSession() // ensure we're clean
         return false
       }
 
@@ -156,6 +156,8 @@ class SessionManager {
 
     this.session = null
     localStorage.removeItem("user")
+    localStorage.removeItem("userId")
+    localStorage.removeItem("token")
 
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer)

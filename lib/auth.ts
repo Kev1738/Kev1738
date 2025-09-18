@@ -1,248 +1,116 @@
+import { cookies } from "next/headers"
 import { supabase } from "./database"
-import { AppError } from "./error-handler"
-import crypto from "crypto"
 
-export interface LoginResult {
+export interface AuthUser {
   id: string
   email: string
   full_name: string
-  phone?: string
   role: "passenger" | "driver" | "admin"
-  is_verified: boolean
-  is_active: boolean
+  phone?: string
   profile_image_url?: string
-  created_at: string
-  updated_at: string
+  is_verified: boolean
 }
 
-export interface RegisterData {
-  email: string
-  password: string
-  full_name: string
-  phone?: string
-  role: "passenger" | "driver" | "admin"
-}
-
-// Simple MD5 hash function (use bcrypt in production)
-function hashPassword(password: string): string {
-  return crypto
-    .createHash("md5")
-    .update(password + "salt")
-    .digest("hex")
-}
-
-export async function loginUser(email: string, password: string): Promise<LoginResult> {
+export async function createSession(user: AuthUser) {
   try {
-    console.log("🔐 Attempting to login user:", email)
+    // Generate a simple session token
+    const token = `session_${user.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
-    if (!email || !password) {
-      throw new AppError("Email and password are required", "VALIDATION_ERROR", 400)
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + 7) // 7 days
+
+    // Store session in database
+    const { error } = await supabase.from("sessions").insert({
+      user_id: user.id,
+      token,
+      expires_at: expiresAt.toISOString(),
+    })
+
+    if (error) {
+      console.error("Session creation error:", error)
+      return { success: false, error: error.message }
     }
 
-    // Hash the password to match stored format
-    const hashedPassword = hashPassword(password)
-    console.log("🔒 Password hashed for comparison")
+    // Set HTTP-only cookie
+    const cookieStore = cookies()
+    cookieStore.set("auth_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+    })
 
-    // Query user from database
-    const { data: users, error } = await supabase
+    return { success: true, token }
+  } catch (error) {
+    console.error("Create session error:", error)
+    return { success: false, error: "Failed to create session" }
+  }
+}
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const cookieStore = cookies()
+    const token = cookieStore.get("auth_token")?.value
+
+    if (!token) {
+      return null
+    }
+
+    // Check if session exists and is valid
+    const { data: session, error } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("token", token)
+      .gt("expires_at", new Date().toISOString())
+      .single()
+
+    if (error || !session) {
+      return null
+    }
+
+    // Get current user data
+    const { data: user, error: userError } = await supabase
       .from("users")
       .select("*")
-      .eq("email", email.toLowerCase().trim())
-      .eq("password", hashedPassword)
-      .limit(1)
+      .eq("id", session.user_id)
+      .eq("is_active", true)
+      .single()
 
-    if (error) {
-      console.error("❌ Database error during login:", error)
-      throw new AppError("Database error during login", "DB_ERROR", 500, error)
-    }
-
-    if (!users || users.length === 0) {
-      console.error("❌ Invalid credentials for:", email)
-      throw new AppError("Invalid email or password", "INVALID_CREDENTIALS", 401)
-    }
-
-    const user = users[0]
-
-    // Check if user is active
-    if (!user.is_active) {
-      console.error("❌ Account is deactivated for:", email)
-      throw new AppError("Account is deactivated", "ACCOUNT_INACTIVE", 403)
-    }
-
-    console.log("✅ Login successful for user:", user.id)
-
-    // Return user data (excluding password)
-    const { password: _, ...userWithoutPassword } = user
-    return userWithoutPassword as LoginResult
-  } catch (error) {
-    console.error("💥 Login error:", error)
-    if (error instanceof AppError) {
-      throw error
-    }
-    throw new AppError("Login failed", "LOGIN_ERROR", 500, error)
-  }
-}
-
-export async function registerUser(userData: RegisterData): Promise<LoginResult> {
-  try {
-    console.log("📝 Attempting to register user:", userData.email)
-
-    const { email, password, full_name, phone, role } = userData
-
-    // Validate input
-    if (!email || !password || !full_name || !role) {
-      throw new AppError("Email, password, full name, and role are required", "VALIDATION_ERROR", 400)
-    }
-
-    if (!["passenger", "driver", "admin"].includes(role)) {
-      throw new AppError("Invalid role specified", "VALIDATION_ERROR", 400)
-    }
-
-    if (password.length < 6) {
-      throw new AppError("Password must be at least 6 characters long", "VALIDATION_ERROR", 400)
-    }
-
-    // Check if user already exists
-    const { data: existingUsers, error: checkError } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email.toLowerCase().trim())
-      .limit(1)
-
-    if (checkError) {
-      console.error("❌ Database error checking existing user:", checkError)
-      throw new AppError("Database error during registration", "DB_ERROR", 500, checkError)
-    }
-
-    if (existingUsers && existingUsers.length > 0) {
-      console.error("❌ User already exists:", email)
-      throw new AppError("User with this email already exists", "USER_EXISTS", 409)
-    }
-
-    // Hash password
-    const hashedPassword = hashPassword(password)
-
-    // Create user record
-    const newUser = {
-      email: email.toLowerCase().trim(),
-      password: hashedPassword,
-      full_name: full_name.trim(),
-      phone: phone?.trim() || null,
-      role,
-      is_verified: false,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-
-    const { data: createdUsers, error: createError } = await supabase.from("users").insert([newUser]).select("*")
-
-    if (createError) {
-      console.error("❌ Database error creating user:", createError)
-      throw new AppError("Failed to create user account", "DB_ERROR", 500, createError)
-    }
-
-    if (!createdUsers || createdUsers.length === 0) {
-      throw new AppError("Failed to create user account", "DB_ERROR", 500)
-    }
-
-    const user = createdUsers[0]
-    console.log("✅ User registration successful:", user.id)
-
-    // Create profile based on role
-    if (role === "driver") {
-      const { error: profileError } = await supabase.from("driver_profiles").insert([
-        {
-          user_id: user.id,
-          is_online: false,
-          status: "offline",
-          rating: 5.0,
-          total_rides: 0,
-          total_earnings: 0.0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
-
-      if (profileError) {
-        console.warn("⚠️ Failed to create driver profile:", profileError)
-      }
-    } else if (role === "passenger") {
-      const { error: profileError } = await supabase.from("passenger_profiles").insert([
-        {
-          user_id: user.id,
-          preferred_payment_method: "card",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
-
-      if (profileError) {
-        console.warn("⚠️ Failed to create passenger profile:", profileError)
-      }
-    }
-
-    // Create wallet for user
-    const { error: walletError } = await supabase.from("wallets").insert([
-      {
-        user_id: user.id,
-        balance: 0.0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ])
-
-    if (walletError) {
-      console.warn("⚠️ Failed to create wallet:", walletError)
-    }
-
-    // Return user data (excluding password)
-    const { password: _, ...userWithoutPassword } = user
-    return userWithoutPassword as LoginResult
-  } catch (error) {
-    console.error("💥 Registration error:", error)
-    if (error instanceof AppError) {
-      throw error
-    }
-    throw new AppError("Registration failed", "REGISTRATION_ERROR", 500, error)
-  }
-}
-
-export async function getUserById(userId: string): Promise<LoginResult | null> {
-  try {
-    const { data: users, error } = await supabase.from("users").select("*").eq("id", userId).limit(1)
-
-    if (error) {
-      console.error("❌ Database error fetching user:", error)
+    if (userError || !user) {
       return null
     }
 
-    if (!users || users.length === 0) {
-      return null
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      role: user.role,
+      phone: user.phone,
+      profile_image_url: user.profile_image_url,
+      is_verified: user.is_verified,
     }
-
-    const user = users[0]
-    const { password: _, ...userWithoutPassword } = user
-    return userWithoutPassword as LoginResult
   } catch (error) {
-    console.error("💥 Error fetching user:", error)
+    console.error("Get current user error:", error)
     return null
   }
 }
 
-export async function getCurrentUser(): Promise<LoginResult | null> {
+export async function destroySession() {
   try {
-    // Get user ID from session storage or localStorage
-    const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null
+    const cookieStore = cookies()
+    const token = cookieStore.get("auth_token")?.value
 
-    if (!userId) {
-      return null
+    if (token) {
+      // Remove session from database
+      await supabase.from("sessions").delete().eq("token", token)
     }
 
-    // Fetch user data from database
-    return await getUserById(userId)
+    // Clear cookie
+    cookieStore.delete("auth_token")
+
+    return { success: true }
   } catch (error) {
-    console.error("💥 Error getting current user:", error)
-    return null
+    console.error("Destroy session error:", error)
+    return { success: false, error: "Failed to destroy session" }
   }
 }

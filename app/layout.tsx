@@ -1,25 +1,26 @@
 import type React from "react"
 import type { Metadata } from "next"
+import { Inter } from "next/font/google"
 import "./globals.css"
-import { ChunkRecover } from "@/components/chunk-recover"
-import { ErrorBoundary } from "@/components/error-boundary"
+
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "RideShare Pro - Professional Transportation Platform",
-  description: "Professional ride-sharing platform with cars, keke, and bikes",
-  generator: "v0.dev",
+  title: "Muf - Your Ride, Your Way",
+  description: "Safe, reliable, and affordable ride-sharing platform",
+  keywords: ["ride sharing", "transportation", "taxi", "uber", "lyft"],
+    generator: 'v0.app'
 }
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en">
-      <body>
-        <ChunkRecover />
-        <ErrorBoundary>{children}</ErrorBoundary>
+      <body className={inter.className}>
+        <div id="root">{children}</div>
       </body>
     </html>
   )

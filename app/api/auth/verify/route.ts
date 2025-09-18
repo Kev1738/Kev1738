@@ -1,28 +1,39 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth"
 import { createErrorResponse, createSuccessResponse } from "@/lib/error-handler"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    console.log("🔍 Session verification requested")
+    console.log("🔐 Auth verify API called")
 
     const user = await getCurrentUser()
 
     if (!user) {
-      console.log("❌ No valid session found")
-      return NextResponse.json(createErrorResponse(new Error("No valid session"), "Session not found"), { status: 401 })
+      return NextResponse.json(createErrorResponse(new Error("Not authenticated"), "User not authenticated"), {
+        status: 401,
+      })
     }
 
-    console.log("✅ Session verified for:", user.email)
+    console.log("✅ User verified:", user.email, user.role)
 
-    return NextResponse.json(createSuccessResponse(user, "Session verified"), {
-      status: 200,
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-      },
-    })
+    return NextResponse.json(
+      createSuccessResponse(
+        {
+          user: {
+            id: user.id,
+            email: user.email,
+            full_name: user.full_name,
+            role: user.role,
+            is_verified: user.is_verified,
+            is_active: user.is_active,
+            profile_image_url: user.profile_image_url,
+          },
+        },
+        "User verified successfully",
+      ),
+    )
   } catch (error) {
-    console.error("💥 Session verification error:", error)
-    return NextResponse.json(createErrorResponse(error, "Session verification failed"), { status: 500 })
+    console.error("💥 Auth verify error:", error)
+    return NextResponse.json(createErrorResponse(error, "Failed to verify user"), { status: 500 })
   }
 }
