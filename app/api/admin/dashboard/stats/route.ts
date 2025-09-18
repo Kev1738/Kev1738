@@ -1,117 +1,42 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getCurrentUser } from "@/lib/auth"
-import { supabase } from "@/lib/database"
-import { createErrorResponse, createSuccessResponse } from "@/lib/error-handler"
+import { createClient } from "@supabase/supabase-js"
+
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("📊 Admin dashboard stats API called")
+    // Get total users
+    const { count: totalUsers } = await supabase.from("users").select("*", { count: "exact", head: true })
 
-    const user = await getCurrentUser()
-    if (!user || user.role !== "admin") {
-      return NextResponse.json(createErrorResponse(new Error("Unauthorized"), "Access denied"), { status: 403 })
-    }
+    // Get active drivers (online status)
+    const { count: activeDrivers } = await supabase
+      .from("driver_profiles")
+      .select("*", { count: "exact", head: true })
+      .eq("is_online", true)
 
-    // Get current date for today's stats
-    const today = new Date()
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString()
-    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString()
+    // Get total revenue from completed rides
+    const { data: revenueData } = await supabase.from("rides").select("fare").eq("status", "completed")
 
-    // Fetch all stats in parallel
-    const [
-      usersResult,
-      driversResult,
-      onlineDriversResult,
-      ridesResult,
-      completedRidesResult,
-      pendingRidesResult,
-      activeRidesResult,
-      cancelledRidesResult,
-      paymentsResult,
-      todayPaymentsResult,
-    ] = await Promise.all([
-      // Total users
-      supabase
-        .from("users")
-        .select("id", { count: "exact", head: true }),
+    const totalRevenue = revenueData?.reduce((sum, ride) => sum + (ride.fare || 0), 0) || 0
 
-      // Total drivers
-      supabase
-        .from("driver_profiles")
-        .select("id", { count: "exact", head: true }),
+    // Get completion rate
+    const { count: totalRides } = await supabase.from("rides").select("*", { count: "exact", head: true })
 
-      // Online drivers
-      supabase
-        .from("driver_profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("is_online", true),
+    const { count: completedRides } = await supabase
+      .from("rides")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "completed")
 
-      // Total rides
-      supabase
-        .from("rides")
-        .select("id", { count: "exact", head: true }),
+    const completionRate = totalRides ? Math.round((completedRides! / totalRides) * 100) : 0
 
-      // Completed rides
-      supabase
-        .from("rides")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "completed"),
-
-      // Pending rides
-      supabase
-        .from("rides")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending"),
-
-      // Active rides (accepted, driver_arrived, in_progress)
-      supabase
-        .from("rides")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["accepted", "driver_arrived", "in_progress"]),
-
-      // Cancelled rides
-      supabase
-        .from("rides")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "cancelled"),
-
-      // Total revenue from completed payments
-      supabase
-        .from("payments")
-        .select("amount")
-        .eq("payment_status", "completed"),
-
-      // Today's revenue
-      supabase
-        .from("payments")
-        .select("amount")
-        .eq("payment_status", "completed")
-        .gte("created_at", todayStart)
-        .lt("created_at", todayEnd),
-    ])
-
-    // Calculate total revenue
-    const totalRevenue = paymentsResult.data?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0
-    const todayRevenue = todayPaymentsResult.data?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0
-
-    const stats = {
-      totalUsers: usersResult.count || 0,
-      totalDrivers: driversResult.count || 0,
-      onlineDrivers: onlineDriversResult.count || 0,
-      totalRides: ridesResult.count || 0,
-      completedRides: completedRidesResult.count || 0,
-      pendingRides: pendingRidesResult.count || 0,
-      activeRides: activeRidesResult.count || 0,
-      cancelledRides: cancelledRidesResult.count || 0,
-      totalRevenue,
-      todayRevenue,
-    }
-
-    console.log("✅ Dashboard stats fetched:", stats)
-
-    return NextResponse.json(createSuccessResponse(stats, "Dashboard stats fetched successfully"))
+    return NextResponse.json({
+      totalUsers: totalUsers || 0,
+      activeDrivers: activeDrivers || 0,
+      totalRevenue: Math.round(totalRevenue),
+      completionRate,
+    })
   } catch (error) {
-    console.error("💥 Admin dashboard stats error:", error)
-    return NextResponse.json(createErrorResponse(error, "Failed to fetch dashboard stats"), { status: 500 })
+    console.error("Dashboard stats error:", error)
+    return NextResponse.json({ error: "Failed to fetch dashboard stats" }, { status: 500 })
   }
 }

@@ -10,16 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { User, Phone, Mail, MapPin, Bell, Shield, Star } from "lucide-react"
+import { User, Phone, Mail, MapPin, Bell, Shield, Star, AlertCircle } from "lucide-react"
 import { PassengerLayout } from "@/components/passenger-layout"
 import { AuthGuard } from "@/components/auth-guard"
 import { useSession } from "@/hooks/use-session"
 import { LoadingSpinner } from "@/components/loading-spinner"
-import { ErrorAlert } from "@/components/error-alert"
 import { ImageUpload } from "@/components/image-upload"
 
 export default function PassengerProfilePage() {
-  const { session } = useSession()
+  const { session, isLoading: sessionLoading } = useSession()
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -44,18 +43,43 @@ export default function PassengerProfilePage() {
   })
 
   useEffect(() => {
-    if (session) {
+    // Only load profile when session is available and not loading
+    if (session && !sessionLoading) {
+      console.log("🔄 Session available, loading profile for:", session.email)
       loadProfile()
+    } else if (!sessionLoading && !session) {
+      console.log("❌ No session available")
+      setError("Please log in to view your profile")
+      setLoading(false)
     }
-  }, [session])
+  }, [session, sessionLoading])
 
   const loadProfile = async () => {
     try {
       setLoading(true)
       setError(null)
 
-      const response = await fetch("/api/user/profile")
+      console.log("📡 Fetching profile data...")
+
+      const response = await fetch("/api/user/profile", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include", // Include cookies for authentication
+      })
+
+      console.log("📡 Profile API response status:", response.status)
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("Please log in to access your profile")
+        }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
       const result = await response.json()
+      console.log("📡 Profile API result:", result.success ? "Success" : "Failed")
 
       if (result.success) {
         const profileData = result.data
@@ -71,12 +95,21 @@ export default function PassengerProfilePage() {
           emergency_contact_phone: profileData.emergency_contact_phone || "",
           profile_image_url: profileData.profile_image_url || "",
         })
+        console.log("✅ Profile loaded successfully")
       } else {
         throw new Error(result.error || "Failed to load profile")
       }
     } catch (err) {
-      console.error("Load profile error:", err)
-      setError(err instanceof Error ? err.message : "Failed to load profile")
+      console.error("❌ Load profile error:", err)
+      const errorMessage = err instanceof Error ? err.message : "Failed to load profile"
+      setError(errorMessage)
+
+      // If unauthorized, redirect to login
+      if (errorMessage.includes("log in") || errorMessage.includes("Unauthorized")) {
+        setTimeout(() => {
+          window.location.href = "/auth/login"
+        }, 2000)
+      }
     } finally {
       setLoading(false)
     }
@@ -91,6 +124,7 @@ export default function PassengerProfilePage() {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify(formData),
       })
 
@@ -122,7 +156,32 @@ export default function PassengerProfilePage() {
     })
   }
 
-  if (!session) return null
+  // Show loading while session is being verified
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" text="Verifying session..." />
+      </div>
+    )
+  }
+
+  // Show error if no session
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <AlertCircle className="h-12 w-12 text-red-500" />
+              <h2 className="text-xl font-semibold">Authentication Required</h2>
+              <p className="text-gray-600">Please log in to access your profile.</p>
+              <Button onClick={() => (window.location.href = "/auth/login")}>Go to Login</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <AuthGuard requiredRole="passenger">
@@ -135,7 +194,19 @@ export default function PassengerProfilePage() {
           </div>
 
           {/* Error State */}
-          {error && <ErrorAlert message={error} onRetry={loadProfile} />}
+          {error && (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="pt-6">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="h-5 w-5 text-red-500" />
+                  <p className="text-red-700">{error}</p>
+                </div>
+                <Button onClick={loadProfile} variant="outline" size="sm" className="mt-3 bg-transparent">
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Loading State */}
           {loading && (
@@ -162,12 +233,14 @@ export default function PassengerProfilePage() {
                       <h2 className="text-2xl font-bold">{profile.full_name}</h2>
                       <p className="text-gray-600">{profile.email}</p>
                       <div className="flex items-center gap-4 mt-2">
-                        <Badge variant="secondary">Member since {formatDate(profile.created_at)}</Badge>
+                        <Badge variant="secondary">
+                          Member since {profile.created_at ? formatDate(profile.created_at) : "Recently"}
+                        </Badge>
                         <div className="flex items-center gap-1">
                           <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                           <span className="text-sm font-medium">4.9</span>
                         </div>
-                        <Badge variant="outline">47 rides</Badge>
+                        <Badge variant="outline">{profile.statistics?.total_rides || 0} rides</Badge>
                       </div>
                     </div>
                   </div>
@@ -426,10 +499,12 @@ export default function PassengerProfilePage() {
                           <Phone className="h-5 w-5" />
                           <div>
                             <p className="font-medium">Phone Number</p>
-                            <p className="text-sm text-gray-600">{profile.phone}</p>
+                            <p className="text-sm text-gray-600">{profile.phone || "Not provided"}</p>
                           </div>
                         </div>
-                        <Badge variant="default">Verified</Badge>
+                        <Badge variant={profile.phone ? "default" : "secondary"}>
+                          {profile.phone ? "Verified" : "Not Verified"}
+                        </Badge>
                       </div>
 
                       <div className="flex items-center justify-between p-4 border rounded-lg">

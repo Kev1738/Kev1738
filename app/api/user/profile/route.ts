@@ -9,8 +9,11 @@ export async function GET() {
 
     const user = await getCurrentUser()
     if (!user) {
+      console.log("❌ No authenticated user found")
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
+
+    console.log("✅ Authenticated user:", user.email, "Role:", user.role)
 
     // Get user profile with role-specific data
     if (user.role === "passenger") {
@@ -221,6 +224,7 @@ export async function GET() {
           })) || [],
       }
 
+      console.log("✅ Profile data prepared successfully")
       return NextResponse.json(createSuccessResponse(responseData, "Profile fetched successfully"))
     } else if (user.role === "driver") {
       // Redirect to driver profile endpoint
