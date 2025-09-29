@@ -4,86 +4,53 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Car, MapPin, Clock, DollarSign, Users, Navigation, Phone, Star, Loader2 } from "lucide-react"
-import { PassengerLayout } from "@/components/passenger-layout"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { MapPin, Clock, Car, History, CreditCard, Settings, LogOut } from "lucide-react"
 
 export default function PassengerDashboard() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [bookingStep, setBookingStep] = useState(1)
-  const [rideType, setRideType] = useState("")
-  const [rideSubType, setRideSubType] = useState("")
-  const [pickup, setPickup] = useState("")
-  const [destination, setDestination] = useState("")
-  const [currentRide, setCurrentRide] = useState<any>(null)
   const router = useRouter()
 
   useEffect(() => {
+    // Check authentication
     const userData = localStorage.getItem("user")
-    if (userData) {
-      try {
-        const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
-      } catch (error) {
-        console.error("Error parsing user data:", error)
-        router.push("/auth/login")
-      }
-    } else {
-      router.push("/auth/login")
-    }
-    setLoading(false)
-  }, [router])
+    const token = localStorage.getItem("token")
 
-  const handleBookRide = async () => {
-    if (!pickup || !destination || !rideType || !rideSubType) return
+    if (!userData || !token) {
+      router.push("/auth/login")
+      return
+    }
 
     try {
-      // This would connect to the rides API
-      console.log("Booking ride:", { pickup, destination, rideType, rideSubType })
-
-      // Simulate ride booking
-      setCurrentRide({
-        id: "RIDE" + Date.now(),
-        driver: {
-          name: "Finding driver...",
-          rating: 0,
-          car: rideType,
-          plate: "---",
-          phone: "",
-        },
-        pickup,
-        destination,
-        type: rideSubType,
-        vehicleType: rideType,
-        fare: calculateFare(rideType, rideSubType),
-        status: "finding_driver",
-        eta: "Finding...",
-      })
-      setBookingStep(3)
+      const parsedUser = JSON.parse(userData)
+      if (parsedUser.role !== "passenger") {
+        router.push("/auth/login")
+        return
+      }
+      setUser(parsedUser)
     } catch (error) {
-      console.error("Booking error:", error)
-      alert("Failed to book ride")
+      console.error("Error parsing user data:", error)
+      router.push("/auth/login")
+      return
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [router])
 
-  const calculateFare = (vehicleType: string, rideType: string) => {
-    const baseFares = {
-      bike: { shared: 8.5, private: 12.0 },
-      keke: { shared: 10.0, private: 15.0 },
-      car: { shared: 12.5, private: 18.75 },
-    }
-    return baseFares[vehicleType as keyof typeof baseFares]?.[rideType as keyof typeof baseFares.bike] || 0
+  const handleLogout = () => {
+    localStorage.removeItem("user")
+    localStorage.removeItem("token")
+    router.push("/")
   }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <div className="text-center">
+          <Car className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Loading dashboard...</p>
+        </div>
       </div>
     )
   }
@@ -93,244 +60,144 @@ export default function PassengerDashboard() {
   }
 
   return (
-    <PassengerLayout>
-      <div className="space-y-6">
-        {/* Welcome Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Welcome back, {user.full_name}!</h1>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center">
+              <Car className="h-6 w-6 text-blue-600 mr-2" />
+              <h1 className="text-xl font-semibold">Muf</h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Avatar>
+                <AvatarImage src={user.profile_image_url || "/placeholder.svg"} />
+                <AvatarFallback>
+                  {user.full_name
+                    ?.split(" ")
+                    .map((n: string) => n[0])
+                    .join("")
+                    .toUpperCase() || "U"}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-sm font-medium">{user.full_name}</p>
+                <p className="text-xs text-gray-500">Passenger</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome Section */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">Welcome back, {user.full_name?.split(" ")[0]}!</h2>
           <p className="text-gray-600">Where would you like to go today?</p>
         </div>
 
-        {/* Current Ride Status */}
-        {currentRide && (
-          <Card className="border-blue-200 bg-blue-50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Car className="h-5 w-5 text-blue-600" />
-                Current Ride - {currentRide.id}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{currentRide.driver.name}</p>
-                  <p className="text-sm text-gray-600">
-                    {currentRide.driver.car} • {currentRide.driver.plate}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1">
-                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    <span className="text-sm">{currentRide.driver.rating}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <Badge variant="secondary">ETA: {currentRide.eta}</Badge>
-                  <p className="text-lg font-bold mt-1">₦{currentRide.fare}</p>
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-green-600" />
-                  <span className="text-sm">{currentRide.pickup}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-red-600" />
-                  <span className="text-sm">{currentRide.destination}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline">
-                  <Navigation className="h-4 w-4 mr-2" />
-                  Share Location
-                </Button>
-                <Button size="sm" variant="outline">
-                  <Phone className="h-4 w-4 mr-2" />
-                  Call Driver
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Booking Interface */}
-        {!currentRide && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Book a Ride</CardTitle>
-              <CardDescription>Enter your pickup and destination</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {bookingStep === 1 && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="pickup">Pickup Location</Label>
-                    <Input
-                      id="pickup"
-                      placeholder="Enter pickup location"
-                      value={pickup}
-                      onChange={(e) => setPickup(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="destination">Destination</Label>
-                    <Input
-                      id="destination"
-                      placeholder="Enter destination"
-                      value={destination}
-                      onChange={(e) => setDestination(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Vehicle Type</Label>
-                    <Select value={rideType} onValueChange={setRideType}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select vehicle type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="car">
-                          <div className="flex items-center gap-2">
-                            <Car className="h-4 w-4" />
-                            <div>
-                              <p>Car</p>
-                              <p className="text-xs text-gray-500">Comfortable 4-seater</p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="keke">
-                          <div className="flex items-center gap-2">
-                            <Car className="h-4 w-4" />
-                            <div>
-                              <p>Keke (Tricycle)</p>
-                              <p className="text-xs text-gray-500">Affordable 3-wheeler</p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="bike">
-                          <div className="flex items-center gap-2">
-                            <Car className="h-4 w-4" />
-                            <div>
-                              <p>Bike</p>
-                              <p className="text-xs text-gray-500">Fast motorcycle ride</p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Ride Type</Label>
-                    <Select value={rideSubType} onValueChange={setRideSubType}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select ride type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="shared">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4" />
-                            <div>
-                              <p>Shared Ride</p>
-                              <p className="text-xs text-gray-500">Save money, share the ride</p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="private">
-                          <div className="flex items-center gap-2">
-                            <Car className="h-4 w-4" />
-                            <div>
-                              <p>Private Ride</p>
-                              <p className="text-xs text-gray-500">Just for you</p>
-                            </div>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <Button
-                    onClick={() => setBookingStep(2)}
-                    className="w-full"
-                    disabled={!pickup || !destination || !rideType}
-                  >
-                    Find Rides
-                  </Button>
-                </>
-              )}
-
-              {bookingStep === 2 && (
-                <div className="space-y-4">
-                  <div className="text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p>Finding nearby drivers...</p>
-                  </div>
-                  <Button onClick={handleBookRide} className="w-full">
-                    Confirm Booking
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
         {/* Quick Actions */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Recent Trips
-              </CardTitle>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <Card
+            className="hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => router.push("/passenger/book-ride")}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center">
+                <Car className="h-5 w-5 text-blue-600 mr-2" />
+                <CardTitle className="text-lg">Book a Ride</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">Downtown to Airport</p>
-                    <p className="text-sm text-gray-600">Yesterday, 2:30 PM</p>
-                  </div>
-                  <span className="font-bold">₦2,450</span>
-                </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">Home to Office</p>
-                    <p className="text-sm text-gray-600">Dec 15, 8:15 AM</p>
-                  </div>
-                  <span className="font-bold">₦1,275</span>
-                </div>
-              </div>
+              <CardDescription>Request a ride to your destination</CardDescription>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Payment & Wallet
-              </CardTitle>
+          <Card
+            className="hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => router.push("/passenger/history")}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center">
+                <History className="h-5 w-5 text-green-600 mr-2" />
+                <CardTitle className="text-lg">Ride History</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span>Wallet Balance</span>
-                  <span className="font-bold text-green-600">₦5,000.00</span>
-                </div>
-                <Button variant="outline" size="sm" className="w-full bg-transparent">
-                  Add Funds
-                </Button>
-                <Button variant="outline" size="sm" className="w-full bg-transparent">
-                  Payment Methods
-                </Button>
+              <CardDescription>View your past rides and trips</CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => router.push("/passenger/payment")}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center">
+                <CreditCard className="h-5 w-5 text-purple-600 mr-2" />
+                <CardTitle className="text-lg">Payment</CardTitle>
               </div>
+            </CardHeader>
+            <CardContent>
+              <CardDescription>Manage payment methods</CardDescription>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => router.push("/passenger/profile")}
+          >
+            <CardHeader className="pb-3">
+              <div className="flex items-center">
+                <Settings className="h-5 w-5 text-gray-600 mr-2" />
+                <CardTitle className="text-lg">Profile</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <CardDescription>Update your profile settings</CardDescription>
             </CardContent>
           </Card>
         </div>
+
+        {/* Current Ride Status */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <MapPin className="h-5 w-5 mr-2" />
+              Current Ride Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-8">
+              <Car className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+              <p className="text-gray-600">No active rides</p>
+              <Button className="mt-4" onClick={() => router.push("/passenger/book-ride")}>
+                Book Your First Ride
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent Activity */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Clock className="h-5 w-5 mr-2" />
+              Recent Activity
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-8">
+              <History className="h-12 w-12 mx-auto text-gray-400 mb-4" />
+              <p className="text-gray-600">No recent activity</p>
+              <p className="text-sm text-gray-500 mt-2">Your ride history will appear here</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </PassengerLayout>
+    </div>
   )
 }

@@ -110,7 +110,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     )
   }
@@ -127,7 +127,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <div className="flex items-center flex-shrink-0 px-4">
             <div className="flex items-center">
               <div className="flex-shrink-0">
-                <Car className="h-8 w-8 text-primary" />
+                <Car className="h-8 w-8 text-blue-600" />
               </div>
               <div className="ml-3">
                 <h1 className="text-xl font-bold text-gray-900">Muf Admin</h1>
@@ -143,14 +143,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                     key={item.name}
                     href={item.href}
                     className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      isActive ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}
                   >
                     <item.icon
                       className={`mr-3 flex-shrink-0 h-5 w-5 ${
-                        isActive ? "text-primary-foreground" : "text-gray-400 group-hover:text-gray-500"
+                        isActive ? "text-white" : "text-gray-400 group-hover:text-gray-500"
                       }`}
                     />
                     {item.name}
@@ -171,7 +169,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </SheetTrigger>
         <SheetContent side="left" className="w-64">
           <div className="flex items-center mb-6">
-            <Car className="h-8 w-8 text-primary" />
+            <Car className="h-8 w-8 text-blue-600" />
             <h1 className="ml-3 text-xl font-bold">Muf Admin</h1>
           </div>
           <nav className="space-y-1">
@@ -182,9 +180,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   key={item.name}
                   href={item.href}
                   className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    isActive ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                   }`}
                 >
                   <item.icon className="mr-3 h-5 w-5" />

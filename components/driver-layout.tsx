@@ -66,9 +66,9 @@ export function DriverLayout({ children }: DriverLayoutProps) {
                     <Link
                       key={item.name}
                       href={item.href}
-                      className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100"
+                      className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-blue-100"
                     >
-                      <item.icon className="h-4 w-4" />
+                      <item.icon className="h-4 w-4 text-blue-600" />
                       <span>{item.name}</span>
                     </Link>
                   ))}
@@ -87,9 +87,9 @@ export function DriverLayout({ children }: DriverLayoutProps) {
               <Link
                 key={item.name}
                 href={item.href}
-                className="flex items-center space-x-1 text-gray-600 hover:text-gray-900"
+                className="flex items-center space-x-1 text-blue-600 hover:text-blue-900"
               >
-                <item.icon className="h-4 w-4" />
+                <item.icon className="h-4 w-4 text-blue-600" />
                 <span>{item.name}</span>
               </Link>
             ))}
@@ -105,11 +105,11 @@ export function DriverLayout({ children }: DriverLayoutProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
+                <User className="mr-2 h-4 w-4 text-blue-600" />
                 <span>Profile</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
+                <LogOut className="mr-2 h-4 w-4 text-blue-600" />
                 <span>Log out</span>
               </DropdownMenuItem>
             </DropdownMenuContent>

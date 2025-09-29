@@ -1,395 +1,341 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
-import { MapComponent } from "@/components/map-component"
-import { PassengerLayout } from "@/components/passenger-layout"
-import { MapPin, Users, Car, Clock, DollarSign, Bike, Truck } from "lucide-react"
+import { MapPin, Clock, Users, CreditCard, Navigation } from "lucide-react"
+import { EnhancedMap } from "@/components/enhanced-map"
+import { SIERRA_LEONE_CONFIG, formatCurrency, calculateFare } from "@/lib/sierra-leone-config"
+import { useSession } from "@/hooks/use-session"
+import { useRouter } from "next/navigation"
 
 export default function BookRidePage() {
-  const [step, setStep] = useState(1)
-  const [rideDetails, setRideDetails] = useState({
-    pickup: "",
-    destination: "",
-    vehicleType: "",
-    rideType: "",
-    scheduledTime: "",
-  })
+  const { user, loading } = useSession()
+  const router = useRouter()
+  const [pickup, setPickup] = useState("")
+  const [destination, setDestination] = useState("")
+  const [selectedVehicle, setSelectedVehicle] = useState("okada")
+  const [paymentMethod, setPaymentMethod] = useState("orange_money")
+  const [estimatedFare, setEstimatedFare] = useState(0)
+  const [estimatedTime, setEstimatedTime] = useState(0)
+  const [isBooking, setIsBooking] = useState(false)
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
 
-  const vehicleOptions = [
-    {
-      id: "bike",
-      name: "Bike",
-      description: "Fast motorcycle ride",
-      basePrice: 8.5,
-      eta: "3-5 min",
-      icon: Bike,
-      features: ["Quick arrival", "Beat traffic", "Affordable"],
-    },
-    {
-      id: "keke",
-      name: "Keke (Tricycle)",
-      description: "Affordable 3-wheeler",
-      basePrice: 10.0,
-      eta: "5-8 min",
-      icon: Truck,
-      features: ["Budget friendly", "Local favorite", "Compact"],
-    },
-    {
-      id: "car",
-      name: "Car",
-      description: "Comfortable 4-seater",
-      basePrice: 12.5,
-      eta: "5-10 min",
-      icon: Car,
-      features: ["Air conditioning", "Comfortable", "Safe"],
-    },
-  ]
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/auth/login")
+    }
+  }, [user, loading, router])
 
-  const rideTypeOptions = [
-    {
-      id: "shared",
-      name: "Shared Ride",
-      description: "Share with others, save money",
-      discount: 0,
-      icon: Users,
-    },
-    {
-      id: "private",
-      name: "Private Ride",
-      description: "Just for you",
-      discount: 0.5, // 50% more expensive
-      icon: Car,
-    },
-  ]
+  useEffect(() => {
+    // Get user's current location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setCurrentLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          })
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          // Default to Freetown center
+          setCurrentLocation({ lat: 8.4657, lng: -13.2317 })
+        },
+      )
+    }
+  }, [])
 
-  const calculateFare = () => {
-    const vehicle = vehicleOptions.find((v) => v.id === rideDetails.vehicleType)
-    const rideType = rideTypeOptions.find((r) => r.id === rideDetails.rideType)
-
-    if (!vehicle || !rideType) return 0
-
-    const basePrice = vehicle.basePrice
-    const multiplier = rideDetails.rideType === "private" ? 1.5 : 1
-
-    return (basePrice * multiplier).toFixed(2)
-  }
-
-  const handleLocationSelect = (location: any) => {
-    console.log("Location selected:", location)
-  }
-
-  const proceedToNext = () => {
-    if (step < 4) setStep(step + 1)
-  }
+  useEffect(() => {
+    // Calculate estimated fare when inputs change
+    if (pickup && destination) {
+      // Simulate distance calculation (in a real app, you'd use Google Maps API)
+      const estimatedDistance = Math.random() * 10 + 2 // 2-12 km
+      const fare = calculateFare(selectedVehicle, estimatedDistance, 0)
+      setEstimatedFare(fare)
+      setEstimatedTime(Math.round(estimatedDistance * 3 + 5)) // Rough time estimate
+    }
+  }, [pickup, destination, selectedVehicle])
 
   const handleBookRide = async () => {
+    if (!pickup || !destination || !selectedVehicle) {
+      alert("Please fill in all required fields")
+      return
+    }
+
+    setIsBooking(true)
     try {
       const response = await fetch("/api/rides/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("auth-token")}`,
+        },
         body: JSON.stringify({
-          ride_type: rideDetails.rideType,
-          vehicle_type: rideDetails.vehicleType,
-          pickup_address: rideDetails.pickup,
-          pickup_latitude: 40.7128,
-          pickup_longitude: -74.006,
-          destination_address: rideDetails.destination,
-          destination_latitude: 40.7589,
-          destination_longitude: -73.9851,
-          fare_amount: Number.parseFloat(calculateFare()),
-          scheduled_time: rideDetails.scheduledTime !== "now" ? rideDetails.scheduledTime : null,
+          pickup_location: pickup,
+          destination: destination,
+          vehicle_type: selectedVehicle,
+          payment_method: paymentMethod,
+          estimated_fare: estimatedFare,
         }),
       })
 
-      const result = await response.json()
+      const data = await response.json()
 
-      if (result.success) {
-        alert("Ride booked successfully!")
-        // Redirect to ride tracking page
+      if (data.success) {
+        router.push(`/passenger/ride-tracking/${data.ride.id}`)
       } else {
-        alert(result.error || "Failed to book ride")
+        alert(data.error || "Failed to book ride")
       }
     } catch (error) {
       console.error("Booking error:", error)
-      alert("Failed to book ride")
+      alert("Failed to book ride. Please try again.")
+    } finally {
+      setIsBooking(false)
     }
   }
 
+  const popularLocations = [
+    "Freetown City Center",
+    "Aberdeen Beach",
+    "Lumley Beach",
+    "Murray Town",
+    "Congo Cross",
+    "Kissy Street",
+    "Wellington",
+    "Waterloo",
+  ]
+
+  if (loading) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>
+  }
+
   return (
-    <PassengerLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Progress Steps */}
-        <div className="flex items-center justify-center space-x-4 mb-8">
-          {[1, 2, 3, 4].map((stepNum) => (
-            <div key={stepNum} className="flex items-center">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step >= stepNum ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-600"
-                }`}
-              >
-                {stepNum}
-              </div>
-              {stepNum < 4 && <div className={`w-16 h-1 mx-2 ${step > stepNum ? "bg-blue-600" : "bg-gray-200"}`} />}
-            </div>
-          ))}
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="max-w-6xl mx-auto">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Book a Ride</h1>
+          <p className="text-gray-600">Get around Sierra Leone safely and affordably</p>
         </div>
 
-        {/* Step 1: Location Selection */}
-        {step === 1 && (
-          <div className="grid lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Booking Form */}
+          <div className="space-y-6">
+            {/* Location Inputs */}
             <Card>
               <CardHeader>
-                <CardTitle>Where to?</CardTitle>
-                <CardDescription>Enter your pickup and destination</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5" />
+                  Where to?
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
+                <div>
                   <Label htmlFor="pickup">Pickup Location</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-green-600" />
-                    <Input
-                      id="pickup"
-                      placeholder="Enter pickup location"
-                      className="pl-10"
-                      value={rideDetails.pickup}
-                      onChange={(e) => setRideDetails((prev) => ({ ...prev, pickup: e.target.value }))}
-                    />
+                  <Input
+                    id="pickup"
+                    placeholder="Enter pickup location"
+                    value={pickup}
+                    onChange={(e) => setPickup(e.target.value)}
+                    className="mt-1"
+                  />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {popularLocations.slice(0, 4).map((location) => (
+                      <Button
+                        key={location}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPickup(location)}
+                        className="text-xs"
+                      >
+                        {location}
+                      </Button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div>
                   <Label htmlFor="destination">Destination</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-3 h-4 w-4 text-red-600" />
-                    <Input
-                      id="destination"
-                      placeholder="Enter destination"
-                      className="pl-10"
-                      value={rideDetails.destination}
-                      onChange={(e) => setRideDetails((prev) => ({ ...prev, destination: e.target.value }))}
-                    />
+                  <Input
+                    id="destination"
+                    placeholder="Where are you going?"
+                    value={destination}
+                    onChange={(e) => setDestination(e.target.value)}
+                    className="mt-1"
+                  />
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {popularLocations.slice(4, 8).map((location) => (
+                      <Button
+                        key={location}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDestination(location)}
+                        className="text-xs"
+                      >
+                        {location}
+                      </Button>
+                    ))}
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label>Schedule (Optional)</Label>
-                  <Select
-                    value={rideDetails.scheduledTime}
-                    onValueChange={(value) => setRideDetails((prev) => ({ ...prev, scheduledTime: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Ride now or schedule" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="now">Ride Now</SelectItem>
-                      <SelectItem value="15min">In 15 minutes</SelectItem>
-                      <SelectItem value="30min">In 30 minutes</SelectItem>
-                      <SelectItem value="1hour">In 1 hour</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button
-                  onClick={proceedToNext}
-                  className="w-full"
-                  disabled={!rideDetails.pickup || !rideDetails.destination}
-                >
-                  Continue
-                </Button>
               </CardContent>
             </Card>
 
-            <MapComponent
-              pickup={rideDetails.pickup}
-              destination={rideDetails.destination}
-              onLocationSelect={handleLocationSelect}
-            />
-          </div>
-        )}
-
-        {/* Step 2: Vehicle Type Selection */}
-        {step === 2 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Choose your vehicle</CardTitle>
-              <CardDescription>Select the type of vehicle for your ride</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {vehicleOptions.map((vehicle) => (
-                <div
-                  key={vehicle.id}
-                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    rideDetails.vehicleType === vehicle.id
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                  onClick={() => setRideDetails((prev) => ({ ...prev, vehicleType: vehicle.id }))}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <vehicle.icon className="h-8 w-8 text-gray-600" />
-                      <div>
-                        <h3 className="font-medium">{vehicle.name}</h3>
-                        <p className="text-sm text-gray-600">{vehicle.description}</p>
-                        <div className="flex items-center space-x-4 mt-2">
-                          <span className="flex items-center text-xs text-gray-500">
-                            <Clock className="h-3 w-3 mr-1" />
-                            {vehicle.eta}
-                          </span>
-                          <div className="flex gap-1">
-                            {vehicle.features.map((feature, idx) => (
-                              <Badge key={idx} variant="secondary" className="text-xs">
-                                {feature}
-                              </Badge>
-                            ))}
+            {/* Vehicle Selection */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Choose Your Ride</CardTitle>
+                <CardDescription>Select the vehicle type that suits your needs</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-3">
+                  {SIERRA_LEONE_CONFIG.vehicleTypes.map((vehicle) => (
+                    <div
+                      key={vehicle.id}
+                      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                        selectedVehicle === vehicle.id
+                          ? "border-green-500 bg-green-50"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                      onClick={() => setSelectedVehicle(vehicle.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">{vehicle.icon}</span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold">{vehicle.name}</h3>
+                              {vehicle.popular && (
+                                <span className="bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded-full">
+                                  Popular
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600">{vehicle.description}</p>
+                            <div className="flex items-center gap-4 mt-1">
+                              <span className="text-xs text-gray-500 flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {vehicle.capacity} passenger{vehicle.capacity > 1 ? "s" : ""}
+                              </span>
+                              <span className="text-xs text-gray-500 flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                2-5 min away
+                              </span>
+                            </div>
                           </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-green-600">{formatCurrency(vehicle.baseFare)}</div>
+                          <div className="text-xs text-gray-500">Base fare</div>
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold">From ${vehicle.basePrice}</p>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Payment Method */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CreditCard className="h-5 w-5" />
+                  Payment Method
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SIERRA_LEONE_CONFIG.paymentMethods.map((method) => (
+                      <SelectItem key={method.id} value={method.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{method.icon}</span>
+                          <span>{method.name}</span>
+                          {method.primary && (
+                            <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+                              Recommended
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* Fare Estimate */}
+            {estimatedFare > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Trip Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Estimated Fare:</span>
+                      <span className="font-semibold text-green-600">{formatCurrency(estimatedFare)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Estimated Time:</span>
+                      <span>{estimatedTime} minutes</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Vehicle:</span>
+                      <span>{SIERRA_LEONE_CONFIG.vehicleTypes.find((v) => v.id === selectedVehicle)?.name}</span>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Book Button */}
+            <Button
+              onClick={handleBookRide}
+              disabled={!pickup || !destination || isBooking}
+              className="w-full bg-green-600 hover:bg-green-700 text-lg py-6"
+            >
+              {isBooking ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Booking Ride...
                 </div>
-              ))}
-
-              <div className="flex space-x-4">
-                <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
-                  Back
-                </Button>
-                <Button onClick={proceedToNext} className="flex-1" disabled={!rideDetails.vehicleType}>
-                  Continue
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Step 3: Ride Type Selection */}
-        {step === 3 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Choose ride type</CardTitle>
-              <CardDescription>Select shared or private ride</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {rideTypeOptions.map((option) => (
-                <div
-                  key={option.id}
-                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    rideDetails.rideType === option.id
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                  onClick={() => setRideDetails((prev) => ({ ...prev, rideType: option.id }))}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <option.icon className="h-6 w-6 text-gray-600" />
-                      <div>
-                        <h3 className="font-medium">{option.name}</h3>
-                        <p className="text-sm text-gray-600">{option.description}</p>
-                      </div>
-                    </div>
-                    {option.id === "shared" && (
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        Save Money
-                      </Badge>
-                    )}
-                  </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Navigation className="h-5 w-5" />
+                  Book Ride - {formatCurrency(estimatedFare)}
                 </div>
-              ))}
+              )}
+            </Button>
+          </div>
 
-              <div className="flex space-x-4">
-                <Button variant="outline" onClick={() => setStep(2)} className="flex-1">
-                  Back
-                </Button>
-                <Button onClick={proceedToNext} className="flex-1" disabled={!rideDetails.rideType}>
-                  Continue
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Step 4: Confirmation */}
-        {step === 4 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Confirm your ride</CardTitle>
-              <CardDescription>Review your ride details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-3">
-                  <MapPin className="h-5 w-5 text-green-600" />
-                  <div>
-                    <p className="font-medium">Pickup</p>
-                    <p className="text-sm text-gray-600">{rideDetails.pickup}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <MapPin className="h-5 w-5 text-red-600" />
-                  <div>
-                    <p className="font-medium">Destination</p>
-                    <p className="text-sm text-gray-600">{rideDetails.destination}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  {vehicleOptions.find((v) => v.id === rideDetails.vehicleType)?.icon && (
-                    <div className="h-5 w-5 text-blue-600">
-                      {vehicleOptions.find((v) => v.id === rideDetails.vehicleType)!.icon}
-                    </div>
-                  )}
-                  <div>
-                    <p className="font-medium">Vehicle & Ride Type</p>
-                    <p className="text-sm text-gray-600">
-                      {vehicleOptions.find((v) => v.id === rideDetails.vehicleType)?.name} •{" "}
-                      {rideTypeOptions.find((r) => r.id === rideDetails.rideType)?.name}
-                    </p>
-                  </div>
-                </div>
-
-                {rideDetails.scheduledTime && rideDetails.scheduledTime !== "now" && (
-                  <div className="flex items-center space-x-3">
-                    <Clock className="h-5 w-5 text-purple-600" />
-                    <div>
-                      <p className="font-medium">Scheduled</p>
-                      <p className="text-sm text-gray-600">{rideDetails.scheduledTime}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
-              <div className="flex justify-between items-center">
-                <span className="text-lg font-medium">Total Fare</span>
-                <span className="text-2xl font-bold">${calculateFare()}</span>
-              </div>
-
-              <div className="flex space-x-4">
-                <Button variant="outline" onClick={() => setStep(3)} className="flex-1">
-                  Back
-                </Button>
-                <Button onClick={handleBookRide} className="flex-1">
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  Book Ride
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          {/* Map */}
+          <div className="lg:sticky lg:top-4">
+            <Card className="h-[600px]">
+              <CardContent className="p-0 h-full">
+                <EnhancedMap
+                  center={currentLocation || { lat: 8.4657, lng: -13.2317 }}
+                  zoom={12}
+                  pickup={pickup}
+                  destination={destination}
+                  onLocationSelect={(location, type) => {
+                    if (type === "pickup") {
+                      setPickup(location)
+                    } else {
+                      setDestination(location)
+                    }
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
-    </PassengerLayout>
+    </div>
   )
 }
